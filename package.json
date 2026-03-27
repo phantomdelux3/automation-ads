@@ -1,0 +1,18 @@
+{
+  "name": "bot-undetectable-click",
+  "version": "2.0.0",
+  "description": "Click simulation testing tool for ad platform QA — powered by CloakBrowser",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node index.js",
+    "start:headed": "set HEADLESS=false && node index.js",
+    "test-stealth": "node test-stealth.js"
+  },
+  "dependencies": {
+    "chalk": "^5.3.0",
+    "cloakbrowser": "latest",
+    "dotenv": "^16.4.5",
+    "playwright-core": "latest"
+  }
+}
