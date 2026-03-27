@@ -1,3 +1,6 @@
 node_modules/
 .env
 *.log
+chrome-profiles/
+stealth-test-result.png
+ad-diagnostic.png
