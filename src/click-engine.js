@@ -19,6 +19,116 @@ function randomFrom(arr) {
 }
 
 /**
+ * Build search history — browse related sites and perform searches
+ * to build up a browsing profile (cookies, localStorage, history).
+ * 
+ * This influences Google's ad targeting so you get relevant ads
+ * (coupons/deals) instead of random government ads.
+ * 
+ * Uses DuckDuckGo for searches (no CAPTCHAs unlike Google/Bing).
+ */
+async function buildSearchHistory(page) {
+  if (!config.searchHistory) {
+    console.log(chalk.dim(`  → Search history: SKIPPED (disabled)`));
+    return;
+  }
+
+  const historyCount = config.searchHistoryCount;
+  console.log(chalk.blue(`  🔍 Building search history (${historyCount} sites)...\n`));
+
+  // Phase 1: Visit warmup URLs (coupon/deal sites in the same niche)
+  const shuffledUrls = [...config.warmupUrls].sort(() => Math.random() - 0.5);
+  const urlsToVisit = shuffledUrls.slice(0, Math.ceil(historyCount / 2));
+
+  for (let i = 0; i < urlsToVisit.length; i++) {
+    const url = urlsToVisit[i];
+    console.log(chalk.dim(`    [${i + 1}/${urlsToVisit.length}] Visiting: ${url}`));
+
+    try {
+      await page.goto(url, {
+        waitUntil: 'domcontentloaded',
+        timeout: 15000,
+      });
+
+      // Simulate organic browsing on each warmup site
+      await sleep(2000, 4000);
+      await humanScroll(page);
+      await sleep(1000, 2000);
+      await mouseJitter(page);
+      await sleep(500, 1500);
+
+      console.log(chalk.dim(`    ✓ Browsed ${new URL(url).hostname}`));
+    } catch (err) {
+      console.log(chalk.dim(`    → ${new URL(url).hostname} didn't load fully, continuing...`));
+    }
+
+    // Small pause between sites
+    await sleep(1000, 3000);
+  }
+
+  // Phase 2: Perform searches on DuckDuckGo (CAPTCHA-free)
+  const shuffledQueries = [...config.searchQueries].sort(() => Math.random() - 0.5);
+  const queriesToSearch = shuffledQueries.slice(0, Math.floor(historyCount / 2) + 1);
+
+  for (let i = 0; i < queriesToSearch.length; i++) {
+    const query = queriesToSearch[i];
+    const searchUrl = `https://duckduckgo.com/?q=${encodeURIComponent(query)}`;
+
+    console.log(chalk.dim(`    [search ${i + 1}/${queriesToSearch.length}] "${query}"`));
+
+    try {
+      await page.goto(searchUrl, {
+        waitUntil: 'domcontentloaded',
+        timeout: 15000,
+      });
+
+      await sleep(2000, 3000);
+      await humanScroll(page);
+      await sleep(1000, 2000);
+
+      // Try to click on a random organic search result
+      try {
+        const resultLinks = await page.evaluate(() => {
+          const links = document.querySelectorAll('a[data-testid="result-title-a"], .result__a, article a');
+          const hrefs = [];
+          links.forEach((link) => {
+            const href = link.getAttribute('href');
+            if (href && href.startsWith('http') && !href.includes('duckduckgo')) {
+              hrefs.push(href);
+            }
+          });
+          return hrefs.slice(0, 5); // top 5 results
+        });
+
+        if (resultLinks.length > 0) {
+          const randomResult = randomFrom(resultLinks);
+          console.log(chalk.dim(`    → Clicking result: ${randomResult.substring(0, 60)}...`));
+
+          await page.goto(randomResult, {
+            waitUntil: 'domcontentloaded',
+            timeout: 10000,
+          });
+
+          await sleep(2000, 4000);
+          await humanScroll(page);
+          await sleep(1000, 2000);
+        }
+      } catch {
+        // Result click failed — that's fine, the search itself builds history
+      }
+
+      console.log(chalk.dim(`    ✓ Searched "${query}"`));
+    } catch {
+      console.log(chalk.dim(`    → Search didn't load fully, continuing...`));
+    }
+
+    await sleep(1000, 2000);
+  }
+
+  console.log(chalk.green(`\n  ✓ Search history built — visited ${urlsToVisit.length} sites + ${queriesToSearch.length} searches\n`));
+}
+
+/**
  * Navigate to target URL with a spoofed referrer header.
  * 
  * We do NOT visit Google/Bing directly — those sites show CAPTCHAs
@@ -32,13 +142,13 @@ async function navigateToTarget(page) {
 
   // Set the referer header — the target site sees this as an organic search visit
   await page.goto(config.targetUrl, {
-    waitUntil: 'networkidle',
+    waitUntil: 'domcontentloaded', // NOT networkidle — Google Ads never stop making requests
     timeout: 30000,
     referer: referrer,
   });
 
-  // Wait for page to settle
-  await sleep(1000, 2000);
+  // Wait for page to render and ads to start loading
+  await sleep(3000, 5000);
 }
 
 /**
@@ -315,22 +425,25 @@ export async function runSession(sessionNumber) {
     console.log(chalk.dim(`  → Locale: ${result.locale}`));
     console.log(chalk.dim(`  → Viewport: ${size.width}x${size.height}`));
 
-    // 2. Navigate to target with spoofed referrer header
-    //    (we don't visit Google — they CAPTCHA automated browsers)
+    // 2. Build search history to warm up the profile
+    //    Visits coupon/deal sites + performs searches to influence ad targeting
+    await buildSearchHistory(page);
+
+    // 3. Navigate to target with spoofed referrer header
     await navigateToTarget(page);
 
-    // 3. Simulate organic browsing (also gives ads time to load)
+    // 4. Simulate organic browsing (also gives ads time to load)
     console.log(chalk.dim(`  → Simulating organic browsing...`));
     await humanScroll(page);
     await randomIdle();
     await mouseJitter(page);
     await simulateReading(page);
 
-    // 4. Find and click Google Ad
+    // 5. Find and click Google Ad
     const clicked = await findAndClickAd(page);
 
     if (clicked) {
-      // 5. Post-click behavior
+      // 6. Post-click behavior
       await postClickBehavior(page, context);
       console.log(chalk.green(`✓ Session ${sessionNumber} completed successfully`));
     } else {

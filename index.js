@@ -21,6 +21,7 @@ async function main() {
   console.log(chalk.dim(`  Sessions:      ${config.clickCount}`));
   console.log(chalk.dim(`  Headless:      ${config.headless}`));
   console.log(chalk.dim(`  Delay Range:   ${config.minDelay}ms - ${config.maxDelay}ms`));
+  console.log(chalk.dim(`  Search History: ${config.searchHistory ? config.searchHistoryCount + ' sites per session' : 'disabled'}`));
   console.log(chalk.dim(`  Proxies:       ${config.proxies.length > 0 ? config.proxies.length + ' configured' : 'none (direct)'}`));
 
   const startTime = Date.now();

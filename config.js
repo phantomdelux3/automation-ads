@@ -22,6 +22,44 @@ const config = {
   // Browser mode
   headless: process.env.HEADLESS === 'true',
 
+  // Search history — browse related sites first to build cookies/profile
+  // This influences what ads Google serves
+  searchHistory: process.env.SEARCH_HISTORY !== 'false', // enabled by default
+  searchHistoryCount: parseInt(process.env.SEARCH_HISTORY_COUNT, 10) || 3, // how many sites to visit
+
+  // Search queries to use for building history (comma-separated in .env)
+  searchQueries: process.env.SEARCH_QUERIES
+    ? process.env.SEARCH_QUERIES.split(',').map((q) => q.trim())
+    : [
+        'best coupon codes 2026',
+        'online shopping deals today',
+        'cashback offers credit card',
+        'discount codes free shipping',
+        'promo codes electronics',
+        'best savings websites',
+        'compare prices online',
+        'money saving tips shopping',
+        'best deal finder apps',
+        'online coupons grocery',
+      ],
+
+  // Warmup URLs — real sites to visit before the target to build browsing profile
+  // These should be in the same niche as your target site
+  warmupUrls: process.env.WARMUP_URLS
+    ? process.env.WARMUP_URLS.split(',').map((u) => u.trim())
+    : [
+        'https://www.retailmenot.com/',
+        'https://www.coupons.com/',
+        'https://www.groupon.com/',
+        'https://www.honey.com/',
+        'https://www.slickdeals.net/',
+        'https://www.dealnews.com/',
+        'https://www.brad\'sdeal.com/',
+        'https://www.offers.com/',
+        'https://www.rakuten.com/',
+        'https://www.couponfollow.com/',
+      ],
+
   // Common screen resolutions to randomly pick from
   viewports: [
     { width: 1920, height: 1080 },
