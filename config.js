@@ -2,32 +2,44 @@ import dotenv from 'dotenv';
 dotenv.config();
 
 const config = {
-  // Target page containing the ad
-  targetUrl: process.env.TARGET_URL || 'https://your-site.com',
+  // ── Keywords & Targeting ──────────────────────────────────
+  keywords: process.env.KEYWORDS
+    ? process.env.KEYWORDS.split(',').map((k) => k.trim())
+    : ['best vpn 2026'],
 
-  // CSS selector for the ad element to click
-  adSelector: process.env.AD_SELECTOR || '.ad-banner',
+  targetDomains: process.env.TARGET_DOMAINS
+    ? process.env.TARGET_DOMAINS.split(',').map((d) => d.trim().toLowerCase())
+    : [],
 
-  // Number of click sessions to run
-  clickCount: parseInt(process.env.CLICK_COUNT, 10) || 3,
+  sessionsPerKeyword: parseInt(process.env.SESSIONS_PER_KEYWORD, 10) || 1,
 
-  // Delay range between sessions (ms)
+  // ── Site Browsing (after clicking the ad) ─────────────────
+  siteBrowseMin: parseInt(process.env.SITE_BROWSE_MIN, 10) || 15,
+  siteBrowseMax: parseInt(process.env.SITE_BROWSE_MAX, 10) || 45,
+  internalPagesMin: parseInt(process.env.INTERNAL_PAGES_MIN, 10) || 1,
+  internalPagesMax: parseInt(process.env.INTERNAL_PAGES_MAX, 10) || 3,
+
+  // ── Timing (milliseconds) ────────────────────────────────
   minDelay: parseInt(process.env.MIN_DELAY, 10) || 3000,
   maxDelay: parseInt(process.env.MAX_DELAY, 10) || 10000,
-
-  // Scroll delay range (ms)
   minScrollDelay: parseInt(process.env.MIN_SCROLL_DELAY, 10) || 500,
   maxScrollDelay: parseInt(process.env.MAX_SCROLL_DELAY, 10) || 2000,
 
-  // Browser mode
+  // ── Browser ──────────────────────────────────────────────
   headless: process.env.HEADLESS === 'true',
 
-  // Search history — browse related sites first to build cookies/profile
-  // This influences what ads Google serves
-  searchHistory: process.env.SEARCH_HISTORY !== 'false', // enabled by default
-  searchHistoryCount: parseInt(process.env.SEARCH_HISTORY_COUNT, 10) || 3, // how many sites to visit
+  // ── Cookie Warmup ────────────────────────────────────────
+  // Visit Google properties (YouTube, Google News) before searching
+  // to build Google cookies and reduce reCAPTCHA triggers
+  //
+  // Sponsored Only — set to false to also search organic results for target domains
+  sponsoredOnly: process.env.SPONSORED_ONLY !== 'false', // true by default
+  cookieWarmup: process.env.COOKIE_WARMUP !== 'false', // enabled by default
 
-  // Search queries to use for building history (comma-separated in .env)
+  // ── Search History ───────────────────────────────────────
+  searchHistory: process.env.SEARCH_HISTORY !== 'false',
+  searchHistoryCount: parseInt(process.env.SEARCH_HISTORY_COUNT, 10) || 3,
+
   searchQueries: process.env.SEARCH_QUERIES
     ? process.env.SEARCH_QUERIES.split(',').map((q) => q.trim())
     : [
@@ -43,8 +55,6 @@ const config = {
         'online coupons grocery',
       ],
 
-  // Warmup URLs — real sites to visit before the target to build browsing profile
-  // These should be in the same niche as your target site
   warmupUrls: process.env.WARMUP_URLS
     ? process.env.WARMUP_URLS.split(',').map((u) => u.trim())
     : [
@@ -54,13 +64,12 @@ const config = {
         'https://www.honey.com/',
         'https://www.slickdeals.net/',
         'https://www.dealnews.com/',
-        'https://www.brad\'sdeal.com/',
         'https://www.offers.com/',
         'https://www.rakuten.com/',
         'https://www.couponfollow.com/',
       ],
 
-  // Common screen resolutions to randomly pick from
+  // ── Viewports ────────────────────────────────────────────
   viewports: [
     { width: 1920, height: 1080 },
     { width: 1366, height: 768 },
@@ -72,17 +81,7 @@ const config = {
     { width: 1280, height: 800 },
   ],
 
-  // Referrer URLs — places a "real user" might come from before visiting your site
-  referrerUrls: [
-    'https://www.google.com/search?q=best+deals+online',
-    'https://www.google.com/search?q=coupon+codes',
-    'https://www.bing.com/search?q=savings+website',
-    'https://www.google.com/search?q=discount+offers',
-    'https://duckduckgo.com/?q=best+online+deals',
-    'https://www.google.com/search?q=cashback+sites',
-  ],
-
-  // Proxy configuration (to be filled in later)
+  // ── Proxy (optional) ─────────────────────────────────────
   proxies: process.env.PROXY_LIST
     ? process.env.PROXY_LIST.split(',').map((p) => p.trim())
     : [],

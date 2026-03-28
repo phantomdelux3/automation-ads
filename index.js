@@ -5,46 +5,64 @@ import chalk from 'chalk';
 
 /**
  * Main entry point
- * Runs multiple click sessions with randomized delays between them
+ * Loops over keywords × sessions, searching Google and clicking matching sponsored ads
  */
 async function main() {
   console.log(chalk.bold.magenta(`
 ╔══════════════════════════════════════════════════════╗
-║       Ad Platform Click Testing Tool v1.0            ║
-║       For internal QA & fraud detection testing      ║
+║   Keyword Ad Click Tool v2.0                        ║
+║   Google Search → Sponsored Ad → Natural Browse     ║
 ╚══════════════════════════════════════════════════════╝
   `));
 
   console.log(chalk.white(`Configuration:`));
-  console.log(chalk.dim(`  Target URL:    ${config.targetUrl}`));
-  console.log(chalk.dim(`  Ad Selector:   ${config.adSelector}`));
-  console.log(chalk.dim(`  Sessions:      ${config.clickCount}`));
-  console.log(chalk.dim(`  Headless:      ${config.headless}`));
-  console.log(chalk.dim(`  Delay Range:   ${config.minDelay}ms - ${config.maxDelay}ms`));
-  console.log(chalk.dim(`  Search History: ${config.searchHistory ? config.searchHistoryCount + ' sites per session' : 'disabled'}`));
-  console.log(chalk.dim(`  Proxies:       ${config.proxies.length > 0 ? config.proxies.length + ' configured' : 'none (direct)'}`));
+  console.log(chalk.dim(`  Keywords:        ${config.keywords.join(', ')}`));
+  console.log(chalk.dim(`  Target Domains:  ${config.targetDomains.join(', ')}`));
+  console.log(chalk.dim(`  Sessions/KW:     ${config.sessionsPerKeyword}`));
+  console.log(chalk.dim(`  Sponsored Only:  ${config.sponsoredOnly ? 'yes (ads only)' : 'no (ads + organic)'}`));
+  console.log(chalk.dim(`  Cookie Warmup:   ${config.cookieWarmup ? 'enabled' : 'disabled'}`));
+  console.log(chalk.dim(`  Search History:  ${config.searchHistory ? config.searchHistoryCount + ' sites per session' : 'disabled'}`));
+  console.log(chalk.dim(`  Headless:        ${config.headless}`));
+  console.log(chalk.dim(`  Browse Time:     ${config.siteBrowseMin}s - ${config.siteBrowseMax}s`));
+  console.log(chalk.dim(`  Internal Pages:  ${config.internalPagesMin} - ${config.internalPagesMax}`));
+  console.log(chalk.dim(`  Proxies:         ${config.proxies.length > 0 ? config.proxies.length + ' configured' : 'none (direct)'}`));
 
   const startTime = Date.now();
+  let totalSessions = 0;
   let successCount = 0;
   let failCount = 0;
 
-  for (let i = 1; i <= config.clickCount; i++) {
-    const success = await runSession(i);
+  // Loop over each keyword
+  for (let kwIdx = 0; kwIdx < config.keywords.length; kwIdx++) {
+    const keyword = config.keywords[kwIdx];
 
-    if (success) {
-      successCount++;
-    } else {
-      failCount++;
-    }
+    console.log(chalk.bold.blue(`\n══════════════════════════════════════════════════════`));
+    console.log(chalk.bold.blue(`  Keyword ${kwIdx + 1}/${config.keywords.length}: "${keyword}"`));
+    console.log(chalk.bold.blue(`══════════════════════════════════════════════════════`));
 
-    // Random delay between sessions (skip after last session)
-    if (i < config.clickCount) {
-      const delay = gaussianDelay(
-        (config.minDelay + config.maxDelay) / 2,
-        (config.maxDelay - config.minDelay) / 4
-      );
-      console.log(chalk.dim(`\n  ⏳ Waiting ${(delay / 1000).toFixed(1)}s before next session...\n`));
-      await sleep(delay);
+    // Run N sessions for this keyword
+    for (let sess = 1; sess <= config.sessionsPerKeyword; sess++) {
+      totalSessions++;
+      const sessionLabel = `K${kwIdx + 1}S${sess}`;
+
+      const success = await runSession(sessionLabel, keyword);
+
+      if (success) {
+        successCount++;
+      } else {
+        failCount++;
+      }
+
+      // Random delay between sessions (skip after the very last one)
+      const isLast = kwIdx === config.keywords.length - 1 && sess === config.sessionsPerKeyword;
+      if (!isLast) {
+        const delay = gaussianDelay(
+          (config.minDelay + config.maxDelay) / 2,
+          (config.maxDelay - config.minDelay) / 4
+        );
+        console.log(chalk.dim(`\n  ⏳ Waiting ${(delay / 1000).toFixed(1)}s before next session...\n`));
+        await sleep(delay);
+      }
     }
   }
 
@@ -54,7 +72,8 @@ async function main() {
 ╔══════════════════════════════════════════════════════╗
 ║                    Results                           ║
 ╠══════════════════════════════════════════════════════╣
-║  Total Sessions:    ${String(config.clickCount).padEnd(32)}║
+║  Keywords:          ${String(config.keywords.length).padEnd(32)}║
+║  Total Sessions:    ${String(totalSessions).padEnd(32)}║
 ║  Successful:        ${chalk.green(String(successCount).padEnd(32))}║
 ║  Failed:            ${chalk.red(String(failCount).padEnd(32))}║
 ║  Elapsed Time:      ${String(elapsed + 's').padEnd(32)}║
