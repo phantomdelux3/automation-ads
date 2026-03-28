@@ -382,11 +382,21 @@ async function findSponsoredAd(page, targetDomains) {
       }
     });
 
+    // Helper: extract main domain (strip www. and subdomains, keep last 2-3 parts)
+    function getMainDomain(hostname) {
+      const h = hostname.toLowerCase().replace(/^www\./, '');
+      return h;
+    }
+
     // Now match against target domains
     for (const ad of results) {
+      let adHostname = '';
+      try { adHostname = new URL(ad.href).hostname; } catch {}
+      const adMainDomain = getMainDomain(adHostname);
       const combined = (ad.href + ' ' + ad.displayUrl).toLowerCase();
       for (const domain of domains) {
-        if (combined.includes(domain.toLowerCase())) {
+        const targetMain = getMainDomain(domain);
+        if (adMainDomain === targetMain || adMainDomain.endsWith('.' + targetMain) || combined.includes(targetMain)) {
           return {
             href: ad.href,
             displayUrl: ad.displayUrl,
@@ -468,11 +478,18 @@ async function findOrganicResult(page, targetDomains) {
       } catch {}
     });
 
+    // Helper: extract main domain (strip www. and subdomains, keep root)
+    function getMainDomain(hostname) {
+      const h = hostname.toLowerCase().replace(/^www\./, '');
+      return h;
+    }
+
     // Match against target domains
     for (const result of results) {
-      const combined = (result.href + ' ' + result.displayUrl + ' ' + result.hostname).toLowerCase();
+      const resultMainDomain = getMainDomain(result.hostname);
       for (const domain of domains) {
-        if (combined.includes(domain.toLowerCase())) {
+        const targetMain = getMainDomain(domain);
+        if (resultMainDomain === targetMain || resultMainDomain.endsWith('.' + targetMain)) {
           return {
             href: result.href,
             displayUrl: result.displayUrl,
@@ -538,10 +555,11 @@ async function clickSponsoredAd(page, adInfo) {
     }
 
     // Fallback: match by domain in href
-    const domain = new URL(targetHref).hostname;
+    const domain = new URL(targetHref).hostname.replace(/^www\./, '');
     for (const link of allLinks) {
       try {
-        if (link.href && new URL(link.href).hostname.includes(domain)) {
+        const linkDomain = new URL(link.href).hostname.replace(/^www\./, '');
+        if (link.href && (linkDomain === domain || linkDomain.endsWith('.' + domain))) {
           link.scrollIntoView({ behavior: 'smooth', block: 'center' });
           return {
             found: true,
@@ -564,22 +582,26 @@ async function clickSponsoredAd(page, adInfo) {
     console.log(chalk.dim(`  → Trying to find ad link by domain...`));
 
     const domainClicked = await page.evaluate((domain) => {
+      const targetMain = domain.toLowerCase().replace(/^www\./, '');
       const allLinks = document.querySelectorAll('a');
       for (const link of allLinks) {
         try {
-          if (link.href && link.href.toLowerCase().includes(domain)) {
-            const parent = link.closest('[data-text-ad]') || link.closest('.uEierd') || link.closest('#tads') || link.closest('#tadsb');
-            if (parent) {
-              link.scrollIntoView({ behavior: 'smooth', block: 'center' });
-              return {
-                found: true,
-                rect: {
-                  x: link.getBoundingClientRect().left + link.getBoundingClientRect().width / 2,
-                  y: link.getBoundingClientRect().top + link.getBoundingClientRect().height / 2,
-                  width: link.getBoundingClientRect().width,
-                  height: link.getBoundingClientRect().height,
-                },
-              };
+          if (link.href) {
+            const linkDomain = new URL(link.href).hostname.toLowerCase().replace(/^www\./, '');
+            if (linkDomain === targetMain || linkDomain.endsWith('.' + targetMain)) {
+              const parent = link.closest('[data-text-ad]') || link.closest('.uEierd') || link.closest('#tads') || link.closest('#tadsb');
+              if (parent) {
+                link.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                return {
+                  found: true,
+                  rect: {
+                    x: link.getBoundingClientRect().left + link.getBoundingClientRect().width / 2,
+                    y: link.getBoundingClientRect().top + link.getBoundingClientRect().height / 2,
+                    width: link.getBoundingClientRect().width,
+                    height: link.getBoundingClientRect().height,
+                  },
+                };
+              }
             }
           }
         } catch {}
@@ -595,10 +617,86 @@ async function clickSponsoredAd(page, adInfo) {
     Object.assign(clicked, domainClicked);
   }
 
-  await sleep(1000, 2000);
+  return await performHumanClick(page, clicked.rect, 'Sponsored ad');
+}
 
-  // Re-measure position after scroll animation completes
-  const rect = clicked.rect;
+// ─── Click Organic Result ───────────────────────────────────
+
+/**
+ * Click on a matched organic result naturally.
+ * Searches ALL links on the page (not just ad containers).
+ */
+async function clickOrganicResult(page, resultInfo) {
+  console.log(chalk.dim(`  → Scrolling to organic result...`));
+
+  // Step 1: Find the matching link, mark it with a data attribute, and scroll to it
+  const found = await page.evaluate(({ targetHref, targetDomain }) => {
+    const targetMain = targetDomain.toLowerCase().replace(/^www\./, '');
+    const allLinks = document.querySelectorAll('#search a, #rso a, #main a');
+
+    // First try exact href match
+    for (const link of allLinks) {
+      if (link.href && link.href === targetHref && link.offsetWidth > 0 && link.offsetHeight > 0) {
+        link.setAttribute('data-organic-target', 'true');
+        link.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        return true;
+      }
+    }
+
+    // Fallback: match by main domain
+    for (const link of allLinks) {
+      try {
+        if (!link.href || !link.offsetWidth || !link.offsetHeight) continue;
+        const linkDomain = new URL(link.href).hostname.toLowerCase().replace(/^www\./, '');
+        if (linkDomain === targetMain || linkDomain.endsWith('.' + targetMain)) {
+          if (link.innerText?.trim().length > 0 || link.querySelector('h3')) {
+            link.setAttribute('data-organic-target', 'true');
+            link.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            return true;
+          }
+        }
+      } catch {}
+    }
+
+    return false;
+  }, { targetHref: resultInfo.href, targetDomain: resultInfo.domain });
+
+  if (!found) {
+    console.log(chalk.yellow(`  ⚠ Could not locate the organic result link to click`));
+    return false;
+  }
+
+  // Step 2: Wait for smooth scroll to finish
+  await sleep(1500, 2500);
+
+  // Step 3: Re-measure coordinates now that scroll is done
+  const rect = await page.evaluate(() => {
+    const link = document.querySelector('a[data-organic-target="true"]');
+    if (!link) return null;
+    const r = link.getBoundingClientRect();
+    return {
+      x: r.left + r.width / 2,
+      y: r.top + r.height / 2,
+      width: r.width,
+      height: r.height,
+    };
+  });
+
+  if (!rect) {
+    console.log(chalk.yellow(`  ⚠ Could not re-measure the organic result position`));
+    return false;
+  }
+
+  return await performHumanClick(page, rect, 'Organic result');
+}
+
+// ─── Shared Human Click ─────────────────────────────────────
+
+/**
+ * Perform a human-like click at the given rect position.
+ */
+async function performHumanClick(page, rect, label) {
+  await sleep(1000, 2000);
 
   // Random offset within the link (not dead center — humans never click dead center)
   const offsetX = (Math.random() - 0.5) * rect.width * 0.3;
@@ -607,7 +705,7 @@ async function clickSponsoredAd(page, adInfo) {
   const clickY = Math.round(rect.y + offsetY);
 
   // Human-like mouse approach
-  console.log(chalk.dim(`  → Moving to ad...`));
+  console.log(chalk.dim(`  → Moving to ${label.toLowerCase()}...`));
   await page.mouse.move(clickX - randomInt(60, 120), clickY - randomInt(20, 50));
   await sleep(200, 500);
   await page.mouse.move(clickX + randomInt(-5, 5), clickY + randomInt(-3, 3));
@@ -615,7 +713,7 @@ async function clickSponsoredAd(page, adInfo) {
 
   // Click!
   await page.mouse.click(clickX, clickY);
-  console.log(chalk.green(`  ✓ Sponsored ad clicked!`));
+  console.log(chalk.green(`  ✓ ${label} clicked!`));
 
   return true;
 }
@@ -835,15 +933,28 @@ export async function runSession(sessionNumber, keyword) {
 
     // 7. Click the result
     console.log(chalk.dim(`  → Clicking ${adInfo.type} result...`));
-    const clicked = await clickSponsoredAd(page, adInfo);
+    const clicked = adInfo.type === 'organic'
+      ? await clickOrganicResult(page, adInfo)
+      : await clickSponsoredAd(page, adInfo);
 
     if (!clicked) {
       console.log(chalk.yellow(`⚠ Session ${sessionNumber} — could not click the result`));
       return false;
     }
 
-    // 8. Wait for landing page and browse naturally
-    await sleep(3000, 5000);
+    // 8. Wait for navigation to the target site
+    console.log(chalk.dim(`  → Waiting for navigation to target site...`));
+    try {
+      await page.waitForURL((url) => !url.toString().includes('google.com/search'), { timeout: 10000 });
+    } catch {
+      // Navigation might not have happened — check current URL
+      const currentUrl = page.url();
+      if (currentUrl.includes('google.com/search')) {
+        console.log(chalk.yellow(`  ⚠ Navigation didn't happen, trying direct goto...`));
+        await page.goto(adInfo.href, { waitUntil: 'domcontentloaded', timeout: 15000 });
+      }
+    }
+    await sleep(2000, 4000);
     await browseTargetSite(page, context);
 
     console.log(chalk.green(`✓ Session ${sessionNumber} completed — "${keyword}" → ${adInfo.domain} (${adInfo.type})`));
