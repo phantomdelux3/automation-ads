@@ -68,6 +68,7 @@ export async function launchBrowser() {
     humanPreset: 'careful',
     timezone,
     locale,
+    ignoreHTTPSErrors: true,
     viewport: {
       width: viewport.width + randomInt(-20, 20),
       height: viewport.height + randomInt(-20, 20),
@@ -76,6 +77,7 @@ export async function launchBrowser() {
       `--fingerprint=${fingerprintSeed}`,
       `--fingerprint-screen-width=${viewport.width}`,
       `--fingerprint-screen-height=${viewport.height}`,
+      `--ignore-certificate-errors`,
     ],
   };
 

@@ -87,6 +87,10 @@ const config = {
     : [],
   proxyUser: process.env.PROXY_USER || '',
   proxyPass: process.env.PROXY_PASS || '',
+
+  // ── Bright Data SERP API ─────────────────────────────────
+  useSerpApi: process.env.USE_SERP_API === 'true',
+  brightDataSerpApiKey: process.env.BRIGHTDATA_SERP_API_KEY || '',
 };
 
 export default config;

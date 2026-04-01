@@ -246,6 +246,65 @@ async function detectAndHandleRecaptcha(page) {
   return false;
 }
 
+// ─── Bright Data SERP API ───────────────────────────────────
+
+/**
+ * Use Bright Data SERP API to fetch Google Search results as raw HTML.
+ * This bypasses Google KYC prompts on residential proxies by offloading
+ * the search to Bright Data's infrastructure, returning the raw HTML.
+ */
+async function searchGoogleWithSerpApi(page, keyword) {
+  console.log(chalk.blue(`  🔎 Fetching SERP API for: "${keyword}"\n`));
+
+  if (!config.brightDataSerpApiKey || config.brightDataSerpApiKey === 'replace_with_your_api_key') {
+    console.log(chalk.red(`  ⚠ BRIGHTDATA_SERP_API_KEY is not set correctly in .env`));
+    throw new Error('Missing SERP API Key');
+  }
+
+  const url = `https://www.google.com/search?q=${encodeURIComponent(keyword)}&gl=uk`;
+  
+  console.log(chalk.dim(`  → Requesting raw HTML from Bright Data...`));
+  const response = await fetch('https://api.brightdata.com/request', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${config.brightDataSerpApiKey}`
+    },
+    body: JSON.stringify({
+      zone: 'serp_api1',
+      url: url,
+      format: 'raw'
+    })
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`SERP API failed: ${response.status} ${response.statusText} - ${errorText}`);
+  }
+
+  console.log(chalk.dim(`  → Injecting SERP HTML into page...`));
+  const html = await response.text();
+  
+  // Set the HTML with a base tag to ensure relative links (like /aclk...) resolve correctly
+  const htmlWithBase = html.replace('<head>', '<head><base href="https://www.google.com/">');
+  
+  // Navigate to google homepage first to establish origin and get some base cookies
+  await page.goto('https://www.google.com/?gl=uk', { waitUntil: 'domcontentloaded', timeout: 20000 });
+  
+  // Set the content without waiting for load events (avoids timeout on raw HTML with broken external resources)
+  try {
+    await page.setContent(htmlWithBase, { waitUntil: 'commit', timeout: 15000 });
+  } catch (err) {
+    console.log(chalk.dim(`  → setContent timeout (expected), continuing...`));
+  }
+
+  // Simulate minimal user behavior
+  await sleep(2000, 4000);
+  await humanScroll(page);
+  
+  console.log(chalk.dim(`  ✓ SERP results loaded via API`));
+}
+
 // ─── Google Search ──────────────────────────────────────────
 
 /**
@@ -917,13 +976,21 @@ export async function runSession(sessionNumber, keyword) {
     console.log(chalk.dim(`  → TZ: ${result.timezone} | Locale: ${result.locale} | Viewport: ${size.width}x${size.height}`));
 
     // 2. Warm up Google cookies (reduces reCAPTCHA)
-    await warmupGoogleCookies(page);
+    if (!config.useSerpApi) {
+      await warmupGoogleCookies(page);
+    }
 
     // 3. Build search history (influences ad targeting)
-    await buildSearchHistory(page);
+    if (!config.useSerpApi) {
+      await buildSearchHistory(page);
+    }
 
     // 4. Search the keyword on Google
-    await searchGoogle(page, keyword);
+    if (config.useSerpApi) {
+      await searchGoogleWithSerpApi(page, keyword);
+    } else {
+      await searchGoogle(page, keyword);
+    }
 
     // 5. Simulate organic behavior on search results
     console.log(chalk.dim(`  → Simulating organic browsing on results...`));
