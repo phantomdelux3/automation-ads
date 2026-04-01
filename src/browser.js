@@ -80,16 +80,20 @@ export async function launchBrowser() {
   };
 
   // Add proxy if configured
-  if (config.proxies.length > 0) {
+  if (config.proxies && config.proxies.length > 0) {
     const proxy = randomFrom(config.proxies);
     let proxyUrl = proxy;
-    if (config.proxyUser && config.proxyPass) {
-      proxyUrl = proxy.replace('://', `://${config.proxyUser}:${config.proxyPass}@`);
-      if (!proxyUrl.includes('://')) {
-        proxyUrl = `http://${config.proxyUser}:${config.proxyPass}@${proxy}`;
-      }
+    
+    if (!proxyUrl.includes('://')) {
+      proxyUrl = `http://${proxy}`;
     }
+
     launchOptions.proxy = { server: proxyUrl };
+
+    if (config.proxyUser && config.proxyPass) {
+      launchOptions.proxy.username = config.proxyUser;
+      launchOptions.proxy.password = config.proxyPass;
+    }
   }
 
   // Launch persistent context — cookies and localStorage persist across restarts

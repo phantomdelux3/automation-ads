@@ -170,18 +170,26 @@ async function buildSearchHistory(page) {
  * If detected, print a loud message and wait for user to solve it.
  */
 async function detectAndHandleRecaptcha(page) {
-  const isRecaptcha = await page.evaluate(() => {
-    const bodyText = document.body?.innerText || '';
-    const hasRecaptchaFrame = !!document.querySelector(
-      'iframe[src*="recaptcha"], iframe[src*="captcha"], #recaptcha, .g-recaptcha'
-    );
-    const hasUnusualTraffic =
-      bodyText.includes('unusual traffic') ||
-      bodyText.includes('not a robot') ||
-      bodyText.includes('automated queries') ||
-      bodyText.includes('captcha');
-    return hasRecaptchaFrame || hasUnusualTraffic;
-  });
+  let isRecaptcha = false;
+  try {
+    isRecaptcha = await page.evaluate(() => {
+      const bodyText = document.body?.innerText || '';
+      const hasRecaptchaFrame = !!document.querySelector(
+        'iframe[src*="recaptcha"], iframe[src*="captcha"], #recaptcha, .g-recaptcha'
+      );
+      const hasUnusualTraffic =
+        bodyText.includes('unusual traffic') ||
+        bodyText.includes('not a robot') ||
+        bodyText.includes('automated queries') ||
+        bodyText.includes('captcha');
+      return hasRecaptchaFrame || hasUnusualTraffic;
+    });
+  } catch (err) {
+    if (err.message.includes('Execution context was destroyed') || err.message.includes('Target closed')) {
+      return false; // Page is navigating or closed, ignore captcha check
+    }
+    throw err;
+  }
 
   if (!isRecaptcha) return false;
 
@@ -193,36 +201,48 @@ async function detectAndHandleRecaptcha(page) {
 
   // Poll every 5 seconds until reCAPTCHA is gone
   let attempts = 0;
-  const maxAttempts = 60; // 5 minutes max
+  const maxAttempts = 180; // 15 minutes max
 
   while (attempts < maxAttempts) {
     await sleep(5000);
     attempts++;
 
-    const stillCaptcha = await page.evaluate(() => {
-      const bodyText = document.body?.innerText || '';
-      const hasRecaptchaFrame = !!document.querySelector(
-        'iframe[src*="recaptcha"], iframe[src*="captcha"], #recaptcha, .g-recaptcha'
-      );
-      const hasUnusualTraffic =
-        bodyText.includes('unusual traffic') ||
-        bodyText.includes('not a robot') ||
-        bodyText.includes('automated queries');
-      return hasRecaptchaFrame || hasUnusualTraffic;
-    });
+    try {
+      const stillCaptcha = await page.evaluate(() => {
+        const bodyText = document.body?.innerText || '';
+        const hasRecaptchaFrame = !!document.querySelector(
+          'iframe[src*="recaptcha"], iframe[src*="captcha"], #recaptcha, .g-recaptcha'
+        );
+        const hasUnusualTraffic =
+          bodyText.includes('unusual traffic') ||
+          bodyText.includes('not a robot') ||
+          bodyText.includes('automated queries');
+        return hasRecaptchaFrame || hasUnusualTraffic;
+      });
 
-    if (!stillCaptcha) {
-      console.log(chalk.green(`  ✓ reCAPTCHA solved! Continuing...\n`));
-      await sleep(2000, 3000);
-      return true; // was captcha, now solved
+      if (!stillCaptcha) {
+        console.log(chalk.green(`  ✓ reCAPTCHA solved! Continuing...\n`));
+        await sleep(2000, 3000);
+        return true; // was captcha, now solved
+      }
+    } catch (err) {
+      if (err.message.includes('Execution context was destroyed') || err.message.includes('Target closed')) {
+        console.log(chalk.green(`  ✓ Navigation detected (reCAPTCHA likely solved)! Continuing...\n`));
+        await sleep(3000, 5000);
+        return true;
+      }
+      throw err;
     }
 
     if (attempts % 6 === 0) {
       console.log(chalk.yellow(`  ⏳ Still waiting for CAPTCHA to be solved... (${attempts * 5}s)`));
+      if (attempts >= 12) {
+          console.log(chalk.magenta(`  🔔 Remember to solve the CAPTCHA in the active browser window!`));
+      }
     }
   }
 
-  console.log(chalk.red(`  ✗ Timed out waiting for CAPTCHA solve (5 min)`));
+  console.log(chalk.red(`  ✗ Timed out waiting for CAPTCHA solve (15 min)`));
   return false;
 }
 
