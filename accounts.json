@@ -1,0 +1,106 @@
+[
+  {
+    "email": "admin.v9482kx.alixe@gmail.com",
+    "password": "QWERTYasdf1234#",
+    "gender": "Female",
+    "age": 24,
+    "name": "Alixe Verma",
+    "dob": "2001-06-14"
+  },
+  {
+    "email": "user.q7319mz.liora@gmail.com",
+    "password": "QWERTYasdf1234#",
+    "gender": "Female",
+    "age": 29,
+    "name": "Liora Sharma",
+    "dob": "1996-02-03"
+  },
+  {
+    "email": "beta.r1937pl.kairo@gmail.com",
+    "password": "QWERTYasdf1234#",
+    "gender": "Male",
+    "age": 27,
+    "name": "Kairo Singh",
+    "dob": "1998-11-10"
+  },
+  {
+    "email": "gamma.t8842qw.elixor@gmail.com",
+    "password": "QWERTYasdf1234#",
+    "gender": "Female",
+    "age": 22,
+    "name": "Elixor Das",
+    "dob": "2003-04-18"
+  },
+  {
+    "email": "delta.p6629bn.alixe@gmail.com",
+    "password": "QWERTYasdf1234#",
+    "gender": "Female",
+    "age": 35,
+    "name": "Alixe Nair",
+    "dob": "1990-07-25"
+  },
+  {
+    "email": "omega.m1192yx.zenra@gmail.com",
+    "password": "QWERTYasdf1234#",
+    "gender": "Other",
+    "age": 26,
+    "name": "Zenra Kapoor",
+    "dob": "1999-01-30"
+  },
+  {
+    "email": "nova.z8273sd.lixor@gmail.com",
+    "password": "QWERTYasdf1234#",
+    "gender": "Male",
+    "age": 28,
+    "name": "Lixor Gupta",
+    "dob": "1997-05-09"
+  },
+  {
+    "email": "zen.v5521tr.alixe@gmail.com",
+    "password": "QWERTYasdf1234#",
+    "gender": "Female",
+    "age": 23,
+    "name": "Alixe Iyer",
+    "dob": "2002-08-12"
+  },
+  {
+    "email": "flux.h9083lm.orixa@gmail.com",
+    "password": "QWERTYasdf1234#",
+    "gender": "Other",
+    "age": 30,
+    "name": "Orixa Roy",
+    "dob": "1995-03-27"
+  },
+  {
+    "email": "user.a9182zx.liora@gmail.com",
+    "password": "QWERTYasdf1234#",
+    "gender": "Female",
+    "age": 21,
+    "name": "Liora Jain",
+    "dob": "2004-06-21"
+  },
+  {
+    "email": "alpha.q7721pl.zenix@gmail.com",
+    "password": "QWERTYasdf1234#",
+    "gender": "Male",
+    "age": 33,
+    "name": "Zenix Bansal",
+    "dob": "1992-10-14"
+  },
+  {
+    "email": "beta.v6633rt.kairo@gmail.com",
+    "password": "QWERTYasdf1234#",
+    "gender": "Male",
+    "age": 25,
+    "name": "Kairo Yadav",
+    "dob": "2000-02-28"
+  },
+  {
+    "email": "gamma.n5512qw.elixor@gmail.com",
+    "password": "QWERTYasdf1234#",
+    "gender": "Female",
+    "age": 28,
+    "name": "Elixor Pillai",
+    "dob": "1997-09-03"
+  }
+]

@@ -1,5 +1,20 @@
 import dotenv from 'dotenv';
+import fs from 'fs';
+import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
+
 dotenv.config();
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const accountsPath = join(__dirname, 'accounts.json');
+let accounts = [];
+try {
+  if (fs.existsSync(accountsPath)) {
+    accounts = JSON.parse(fs.readFileSync(accountsPath, 'utf8'));
+  }
+} catch (e) {
+  console.error("Error reading accounts.json:", e);
+}
 
 const config = {
   // ── Keywords & Targeting ──────────────────────────────────
@@ -27,6 +42,8 @@ const config = {
 
   // ── Browser ──────────────────────────────────────────────
   headless: process.env.HEADLESS === 'true',
+  loginEmail: process.env.LOGIN_EMAIL !== 'false',
+  accounts: accounts,
 
   // ── Cookie Warmup ────────────────────────────────────────
   // Visit Google properties (YouTube, Google News) before searching

@@ -51,7 +51,7 @@ async function warmupGoogleCookies(page) {
       console.log(chalk.dim(`    → Visiting ${site.name}...`));
       await page.goto(site.url, {
         waitUntil: 'domcontentloaded',
-        timeout: 20000,
+        timeout: 60000,
       });
 
       // Accept Google cookie consent if it appears
@@ -258,7 +258,7 @@ async function searchGoogle(page, keyword) {
   // Navigate to Google
   await page.goto('https://www.google.com', {
     waitUntil: 'domcontentloaded',
-    timeout: 20000,
+    timeout: 60000,
   });
 
   // Accept consent if it shows again
@@ -408,6 +408,21 @@ async function findSponsoredAd(page, targetDomains) {
       return h;
     }
 
+    // Enhance results with trackingUrl if present on the DOM link
+    results.forEach((r) => {
+      r.trackingUrl = r.href;
+      const links = document.querySelectorAll('a');
+      for (const link of links) {
+        if (link.href === r.href) {
+          const rw = link.getAttribute('data-rw') || link.getAttribute('data-adurl');
+          if (rw) {
+            r.trackingUrl = rw.startsWith('http') ? rw : 'https://www.google.com' + rw;
+            break;
+          }
+        }
+      }
+    });
+
     // Now match against target domains
     for (const ad of results) {
       let adHostname = '';
@@ -419,6 +434,7 @@ async function findSponsoredAd(page, targetDomains) {
         if (adMainDomain === targetMain || adMainDomain.endsWith('.' + targetMain) || combined.includes(targetMain)) {
           return {
             href: ad.href,
+            trackingUrl: ad.trackingUrl,
             displayUrl: ad.displayUrl,
             domain: domain,
             top: ad.top,
@@ -971,7 +987,9 @@ export async function runSession(sessionNumber, keyword) {
       const currentUrl = page.url();
       if (currentUrl.includes('google.com/search')) {
         console.log(chalk.yellow(`  ⚠ Navigation didn't happen, trying direct goto...`));
-        await page.goto(adInfo.href, { waitUntil: 'domcontentloaded', timeout: 15000 });
+        const gotoUrl = adInfo.trackingUrl || adInfo.href;
+        console.log(chalk.dim(`  → Direct goto URL: ${gotoUrl.substring(0, 100)}...`));
+        await page.goto(gotoUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
       }
     }
     await sleep(2000, 4000);

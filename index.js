@@ -27,6 +27,39 @@ async function main() {
   console.log(chalk.dim(`  Internal Pages:  ${config.internalPagesMin} - ${config.internalPagesMax}`));
   console.log(chalk.dim(`  Proxies:         ${config.proxies.length > 0 ? config.proxies.length + ' configured' : 'none (direct)'}`));
 
+  // SETUP PROFILES
+  if (config.loginEmail && config.accounts && config.accounts.length > 0) {
+    console.log(chalk.bold.yellow(`\n══════════════════════════════════════════════════════`));
+    console.log(chalk.bold.yellow(`  Initializing Unmade Browser Profiles`));
+    console.log(chalk.bold.yellow(`══════════════════════════════════════════════════════`));
+    
+    const fs = await import('fs');
+    const path = await import('path');
+    const { launchBrowser } = await import('./src/browser.js');
+
+    for (const account of config.accounts) {
+      const profileDirName = account.email.replace(/[^a-z0-9@.-]+/gi, '_');
+      const profileDir = path.join(process.cwd(), 'chrome-profiles', profileDirName);
+      const successFile = path.join(profileDir, 'LOGIN_SUCCESS.txt');
+      
+      if (!fs.existsSync(successFile)) {
+        console.log(chalk.cyan(`\n  → Setting up profile for: ${account.email}`));
+        try {
+          const result = await launchBrowser(0, account, true);
+          if (result && result.context) {
+            await result.context.close();
+            console.log(chalk.green(`  ✓ Profile setup complete for ${account.email}`));
+          }
+        } catch (e) {
+          console.log(chalk.red(`  ⚠ Error setting up profile for ${account.email}: ${e.message}`));
+        }
+      } else {
+        console.log(chalk.dim(`  ✓ Profile for ${account.email} already exists and is logged in.`));
+      }
+    }
+    console.log(chalk.bold.green(`\n[Setup] Browser profile initialization complete.\n`));
+  }
+
   const startTime = Date.now();
   let totalSessions = 0;
   let successCount = 0;
