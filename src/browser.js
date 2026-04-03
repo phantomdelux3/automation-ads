@@ -2,6 +2,7 @@ import { launchPersistentContext } from 'cloakbrowser';
 import config from '../config.js';
 import { join } from 'path';
 import { mkdirSync, existsSync, writeFileSync } from 'fs';
+import proxyChain from 'proxy-chain';
 
 /**
  * Pick a random item from an array
@@ -135,8 +136,11 @@ export async function launchBrowser(retryCount = 0, specificAccount = null, perf
       `--fingerprint-screen-width=${viewport.width}`,
       `--fingerprint-screen-height=${viewport.height}`,
       `--proxy-bypass-list=<-loopback>`, // Optimize local browser socket connection speed
+      `--disable-quic` // Prevent proxies from hanging on HTTP/3
     ],
   };
+
+  let anonymizedProxyUrl = null;
 
   // Add proxy if configured
   if (config.proxies && config.proxies.length > 0) {
@@ -145,20 +149,35 @@ export async function launchBrowser(retryCount = 0, specificAccount = null, perf
     
     if (!proxyUrl.includes('://')) {
       proxyUrl = `http://${proxy}`;
+    } else if (proxyUrl.startsWith('https://')) {
+      proxyUrl = proxyUrl.replace('https://', 'http://');
     }
-
-    launchOptions.proxy = { server: proxyUrl };
 
     if (config.proxyUser && config.proxyPass) {
-      launchOptions.proxy.username = config.proxyUser;
-      launchOptions.proxy.password = config.proxyPass;
+      const urlObj = new URL(proxyUrl);
+      urlObj.username = config.proxyUser;
+      urlObj.password = config.proxyPass;
+      proxyUrl = urlObj.toString();
     }
+    
+    // Anonymize the proxy so Playwright doesn't have to handle proxy auth
+    anonymizedProxyUrl = await proxyChain.anonymizeProxy({ url: proxyUrl });
+    launchOptions.proxy = { server: anonymizedProxyUrl };
   }
 
   try {
     // Launch persistent context — cookies and localStorage persist across restarts
     // This bypasses incognito detection and builds browser trust
     const context = await launchPersistentContext(launchOptions, { timeout: 45000 });
+    
+    // Make sure we close the anonymized proxy when context closes to avoid port leaking
+    if (anonymizedProxyUrl) {
+      const originalClose = context.close.bind(context);
+      context.close = async () => {
+        await originalClose();
+        await proxyChain.closeAnonymizedProxy(anonymizedProxyUrl, true);
+      };
+    }
     const page = context.pages()[0] || await context.newPage();
     
     if (account && performLogin) {
