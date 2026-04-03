@@ -303,9 +303,11 @@ async function searchGoogle(page, keyword) {
 
   // Wait for results to load
   try {
-    await page.waitForSelector('#search, #rso', { timeout: 15000 });
+    await page.waitForSelector('#search, #rso, #main, #tads, .uEierd', { timeout: 15000 });
+    // Also wait a bit for scripts to stop generating dynamic ads (like shopping carousels)
+    await page.waitForLoadState('networkidle', { timeout: 5000 }).catch(() => {});
   } catch {
-    console.log(chalk.yellow(`  ⚠ Search results didn't load normally`));
+    console.log(chalk.yellow(`  ⚠ Search results container didn't appear normally, but continuing...`));
   }
 
   await sleep(2000, 4000);
@@ -334,8 +336,9 @@ async function findSponsoredAd(page, targetDomains) {
   await humanScroll(page);
   await sleep(1000, 2000);
 
-  const matchedAd = await page.evaluate((domains) => {
+  const matchedAds = await page.evaluate((domains) => {
     const results = [];
+    const matchedAds = [];
 
     // ── Strategy 1: Top ads container (#tads) ──
     const topAdsContainer = document.querySelector('#tads');
@@ -423,7 +426,7 @@ async function findSponsoredAd(page, targetDomains) {
       }
     });
 
-    // Now match against target domains
+  // Now match against target domains
     for (const ad of results) {
       let adHostname = '';
       try { adHostname = new URL(ad.href).hostname; } catch {}
@@ -432,36 +435,38 @@ async function findSponsoredAd(page, targetDomains) {
       for (const domain of domains) {
         const targetMain = getMainDomain(domain);
         if (adMainDomain === targetMain || adMainDomain.endsWith('.' + targetMain) || combined.includes(targetMain)) {
-          return {
-            href: ad.href,
-            trackingUrl: ad.trackingUrl,
-            displayUrl: ad.displayUrl,
-            domain: domain,
-            top: ad.top,
-            matched: true,
-            type: 'sponsored',
-          };
+          if (!matchedAds.some(m => m.href === ad.href)) {
+             matchedAds.push({
+               href: ad.href,
+               trackingUrl: ad.trackingUrl,
+               displayUrl: ad.displayUrl,
+               domain: domain,
+               top: ad.top,
+               matched: true,
+               type: 'sponsored',
+             });
+          }
         }
       }
     }
 
-    return { matched: false, totalAds: results.length, sampleUrls: results.slice(0, 5).map(r => r.href) };
+    return { matched: matchedAds.length > 0, ads: matchedAds, totalAds: results.length, sampleUrls: results.slice(0, 5).map(r => r.href) };
   }, targetDomains);
 
-  if (matchedAd.matched) {
-    console.log(chalk.green(`  ✓ Found sponsored ad for "${matchedAd.domain}": ${matchedAd.displayUrl || matchedAd.href}`));
-    return matchedAd;
+  if (matchedAds.matched) {
+    console.log(chalk.green(`  ✓ Found ${matchedAds.ads.length} sponsored ad(s) matching targets`));
+    return matchedAds.ads;
   }
 
-  console.log(chalk.yellow(`  ⚠ No matching sponsored ads found (${matchedAd.totalAds} total ads on page)`));
-  if (matchedAd.sampleUrls?.length > 0) {
+  console.log(chalk.yellow(`  ⚠ No matching sponsored ads found (${matchedAds.totalAds} total ads on page)`));
+  if (matchedAds.sampleUrls?.length > 0) {
     console.log(chalk.dim(`    Found ads pointing to:`));
-    matchedAd.sampleUrls.forEach((url) => {
+    matchedAds.sampleUrls.forEach((url) => {
       console.log(chalk.dim(`      → ${url.substring(0, 80)}`));
     });
   }
 
-  return null;
+  return [];
 }
 
 // ─── Find Organic Result ────────────────────────────────────
@@ -478,6 +483,7 @@ async function findOrganicResult(page, targetDomains) {
 
   const matchedResult = await page.evaluate((domains) => {
     const results = [];
+    const matchedResults = [];
 
     // Get ALL links in the search results area
     const searchContainer = document.querySelector('#search, #rso, #main');
@@ -526,29 +532,32 @@ async function findOrganicResult(page, targetDomains) {
       for (const domain of domains) {
         const targetMain = getMainDomain(domain);
         if (resultMainDomain === targetMain || resultMainDomain.endsWith('.' + targetMain)) {
-          return {
-            href: result.href,
-            displayUrl: result.displayUrl,
-            domain: domain,
-            top: result.top,
-            matched: true,
-            type: 'organic',
-            text: result.text,
-          };
+           if (!matchedResults.some(m => m.href === result.href)) {
+             matchedResults.push({
+               href: result.href,
+               displayUrl: result.displayUrl,
+               domain: domain,
+               top: result.top,
+               matched: true,
+               type: 'organic',
+               text: result.text,
+             });
+           }
         }
       }
     }
 
     return {
-      matched: false,
+      matched: matchedResults.length > 0,
+      ads: matchedResults,
       totalResults: results.length,
       sampleUrls: results.slice(0, 8).map(r => `${r.hostname} — ${r.text.substring(0, 40)}`),
     };
   }, targetDomains);
 
   if (matchedResult.matched) {
-    console.log(chalk.green(`  ✓ Found organic result for "${matchedResult.domain}": ${matchedResult.displayUrl || matchedResult.href}`));
-    return matchedResult;
+    console.log(chalk.green(`  ✓ Found ${matchedResult.ads.length} organic result(s) matching targets`));
+    return matchedResult.ads;
   }
 
   console.log(chalk.yellow(`  ⚠ No matching results found on page (${matchedResult.totalResults} total results)`));
@@ -559,7 +568,7 @@ async function findOrganicResult(page, targetDomains) {
     });
   }
 
-  return null;
+  return [];
 }
 
 // ─── Click Sponsored Ad ─────────────────────────────────────
@@ -920,6 +929,13 @@ export async function runSession(sessionNumber, keyword) {
   console.log(chalk.cyan(`\n━━━ Session ${sessionNumber} ━━━━━━━━━━━━━━━━━━━━━━`));
   console.log(chalk.cyan(`  Keyword: "${keyword}"`));
 
+  let sessionStats = {
+    keyword,
+    success: false,
+    hasSponsored: false,
+    hasTargetDomain: false
+  };
+
   let context;
 
   try {
@@ -941,65 +957,174 @@ export async function runSession(sessionNumber, keyword) {
     // 4. Search the keyword on Google
     await searchGoogle(page, keyword);
 
-    // 5. Simulate organic behavior on search results
+    // 5. FAST FAIL CHECKS - Before wasting time scrolling
+    console.log(chalk.dim(`  → FAST FAIL CHECK: Validating presence & targets...`));
+    const fastCheck = await page.evaluate(({ domains, onlySponsored }) => {
+      function getMainDomain(hostname) { return hostname.toLowerCase().replace(/^www\./, ''); }
+
+      // Count distinct sponsored ad blocks
+      const adBlockEls = document.querySelectorAll('#tads > *, #tadsb > *, [data-text-ad], .uEierd');
+      const sponsoredSpans = Array.from(document.querySelectorAll('span')).filter(s => s.textContent?.trim() === 'Sponsored' || s.textContent?.trim() === 'Ad');
+      const sponsoredCount = adBlockEls.length || sponsoredSpans.length;
+      const hasSponsored = sponsoredCount > 0;
+
+      let targetInSponsored = false;
+      let targetInOrganic = false;
+      let sponsoredTargetCount = 0;
+      let organicTargetCount = 0;
+      const seenSponsoredTargets = new Set();
+      const seenOrganicTargets = new Set();
+
+      // Check for targets in Sponsored Ads
+      const allAdLinks = document.querySelectorAll('#tads a, #tadsb a, [data-text-ad] a, .uEierd a, .commercial-unit-desktop-top a, [data-rw]');
+      for (const link of allAdLinks) {
+        if (!link.href) continue;
+        let adMainDomain = '';
+        try { adMainDomain = getMainDomain(new URL(link.href).hostname); } catch {}
+        for (const domain of domains) {
+          const targetMain = getMainDomain(domain);
+          if (adMainDomain === targetMain || adMainDomain.endsWith('.' + targetMain) || link.href.toLowerCase().includes(targetMain)) {
+            targetInSponsored = true;
+            if (!seenSponsoredTargets.has(link.href)) {
+              seenSponsoredTargets.add(link.href);
+              sponsoredTargetCount++;
+            }
+          }
+        }
+      }
+
+      // Check for targets in Organic (if SPONSORED_ONLY is false)
+      if (!onlySponsored) {
+        const organicLinks = document.querySelectorAll('#search a, #rso a, #main a');
+        for (const link of organicLinks) {
+          if (!link.href) continue;
+          let organicMainDomain = '';
+          try { organicMainDomain = getMainDomain(new URL(link.href).hostname); } catch {}
+          for (const domain of domains) {
+            const targetMain = getMainDomain(domain);
+            if (organicMainDomain === targetMain || organicMainDomain.endsWith('.' + targetMain) || link.href.toLowerCase().includes(targetMain)) {
+              targetInOrganic = true;
+              if (!seenOrganicTargets.has(link.href)) {
+                seenOrganicTargets.add(link.href);
+                organicTargetCount++;
+              }
+            }
+          }
+        }
+      }
+
+      const totalTargetCount = sponsoredTargetCount + organicTargetCount;
+
+      return {
+        hasSponsored,
+        sponsoredCount,
+        hasTarget: targetInSponsored || (!onlySponsored && targetInOrganic),
+        targetInSponsored,
+        targetInOrganic,
+        sponsoredTargetCount,
+        organicTargetCount,
+        totalTargetCount,
+      };
+    }, { domains: config.targetDomains, onlySponsored: config.sponsoredOnly });
+
+    sessionStats.hasSponsored = fastCheck.hasSponsored;
+    sessionStats.hasTargetDomain = fastCheck.hasTarget;
+    sessionStats.sponsoredCount = fastCheck.sponsoredCount;
+    sessionStats.targetCount = fastCheck.totalTargetCount;
+
+    if (config.sponsoredOnly) {
+      if (!fastCheck.hasSponsored) {
+        console.log(chalk.yellow(`  ⚠ FAST FAIL: No sponsored ads found on page. Skipping session.`));
+        return sessionStats;
+      }
+      if (!fastCheck.targetInSponsored) {
+        console.log(chalk.yellow(`  ⚠ FAST FAIL: Found ${fastCheck.sponsoredCount} sponsored ad(s) but target domain was NOT among them. Skipping session.`));
+        return sessionStats;
+      }
+    } else {
+      if (!fastCheck.hasTarget) {
+        console.log(chalk.yellow(`  ⚠ FAST FAIL: Target domains not found in sponsored or organic results. Skipping session.`));
+        return sessionStats;
+      }
+    }
+    console.log(chalk.green(`  ✓ Validated! ${fastCheck.sponsoredCount} sponsored ad(s) on page, ${fastCheck.totalTargetCount} target link(s) found. Proceeding...`));
+
+    // 6. Simulate organic behavior on search results
     console.log(chalk.dim(`  → Simulating organic browsing on results...`));
     await humanScroll(page);
     await randomIdle();
     await mouseJitter(page);
 
-    // 6. Find matching result (sponsored first, then organic if SPONSORED_ONLY=false)
-    let adInfo = null;
+    // 7. Find matching result (sponsored first, then organic if SPONSORED_ONLY=false)
+    let adInfos = [];
 
     if (config.sponsoredOnly) {
       // Only look at sponsored ads
-      adInfo = await findSponsoredAd(page, config.targetDomains);
+      adInfos = await findSponsoredAd(page, config.targetDomains);
     } else {
       // Search sponsored first, fall back to organic results
-      adInfo = await findSponsoredAd(page, config.targetDomains);
-      if (!adInfo) {
+      adInfos = await findSponsoredAd(page, config.targetDomains);
+      if (adInfos.length === 0) {
         console.log(chalk.dim(`  → No sponsored match, checking organic results...`));
-        adInfo = await findOrganicResult(page, config.targetDomains);
+        adInfos = await findOrganicResult(page, config.targetDomains);
       }
     }
 
-    if (!adInfo) {
+    if (adInfos.length === 0) {
       console.log(chalk.yellow(`⚠ Session ${sessionNumber} — no matching result found for "${keyword}"`));
-      return false;
+      return sessionStats;
     }
 
-    // 7. Click the result
-    console.log(chalk.dim(`  → Clicking ${adInfo.type} result...`));
-    const clicked = adInfo.type === 'organic'
-      ? await clickOrganicResult(page, adInfo)
-      : await clickSponsoredAd(page, adInfo);
+    // 8. Click and browse ALL matched targets
+    for (let c = 0; c < adInfos.length; c++) {
+      const adInfo = adInfos[c];
+      console.log(chalk.dim(`  → Target ${c + 1}/${adInfos.length}: Clicking ${adInfo.type} result (${adInfo.domain})...`));
+      
+      const clicked = adInfo.type === 'organic'
+        ? await clickOrganicResult(page, adInfo)
+        : await clickSponsoredAd(page, adInfo);
 
-    if (!clicked) {
-      console.log(chalk.yellow(`⚠ Session ${sessionNumber} — could not click the result`));
-      return false;
-    }
+      if (!clicked) {
+        console.log(chalk.yellow(`  ⚠ Could not click target ${c + 1}`));
+        continue;
+      }
+      
+      sessionStats.clickedTargets = (sessionStats.clickedTargets || 0) + 1;
 
-    // 8. Wait for navigation to the target site
-    console.log(chalk.dim(`  → Waiting for navigation to target site...`));
-    try {
-      await page.waitForURL((url) => !url.toString().includes('google.com/search'), { timeout: 10000 });
-    } catch {
-      // Navigation might not have happened — check current URL
-      const currentUrl = page.url();
-      if (currentUrl.includes('google.com/search')) {
-        console.log(chalk.yellow(`  ⚠ Navigation didn't happen, trying direct goto...`));
-        const gotoUrl = adInfo.trackingUrl || adInfo.href;
-        console.log(chalk.dim(`  → Direct goto URL: ${gotoUrl.substring(0, 100)}...`));
-        await page.goto(gotoUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
+      // 9. Wait for navigation to the target site
+      console.log(chalk.dim(`  → Waiting for navigation to target site...`));
+      try {
+        await page.waitForURL((url) => !url.toString().includes('google.com/search'), { timeout: 10000 });
+      } catch {
+        // Navigation might not have happened — check current URL
+        const currentUrl = page.url();
+        if (currentUrl.includes('google.com/search')) {
+          console.log(chalk.yellow(`  ⚠ Navigation didn't happen, trying direct goto...`));
+          const gotoUrl = adInfo.trackingUrl || adInfo.href;
+          console.log(chalk.dim(`  → Direct goto URL: ${gotoUrl.substring(0, 100)}...`));
+          await page.goto(gotoUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
+        }
+      }
+      await sleep(2000, 4000);
+      await browseTargetSite(page, context);
+
+      console.log(chalk.green(`  ✓ Browsed target ${c + 1} — "${adInfo.domain}" (${adInfo.type})`));
+      
+      if (c < adInfos.length - 1) {
+         console.log(chalk.dim(`  → Navigating back to Google Search for next target...`));
+         await page.goBack({ waitUntil: 'networkidle' });
+         // Re-find the next element to scroll
+         await sleep(2000, 4000);
+         await humanScroll(page);
       }
     }
-    await sleep(2000, 4000);
-    await browseTargetSite(page, context);
 
-    console.log(chalk.green(`✓ Session ${sessionNumber} completed — "${keyword}" → ${adInfo.domain} (${adInfo.type})`));
-    return true;
+    console.log(chalk.green(`✓ Session ${sessionNumber} completed — clicked ${sessionStats.clickedTargets} targets`));
+    sessionStats.success = true;
+    return sessionStats;
   } catch (err) {
     console.log(chalk.red(`✗ Session ${sessionNumber} failed: ${err.message}`));
-    return false;
+    return sessionStats;
   } finally {
     if (context) {
       await context.close();

@@ -40,6 +40,9 @@ const config = {
   minScrollDelay: parseInt(process.env.MIN_SCROLL_DELAY, 10) || 500,
   maxScrollDelay: parseInt(process.env.MAX_SCROLL_DELAY, 10) || 2000,
 
+  // ── Loop Control ─────────────────────────────────────────
+  loopBot: process.env.LOOP_BOT === 'true',
+
   // ── Browser ──────────────────────────────────────────────
   headless: process.env.HEADLESS === 'true',
   loginEmail: process.env.LOGIN_EMAIL !== 'false',
