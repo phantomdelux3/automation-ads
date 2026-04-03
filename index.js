@@ -1,4 +1,5 @@
 import { runSession } from './src/click-engine.js';
+import { check2CaptchaBalance } from './src/captcha-solver.js';
 import { sleep, gaussianDelay } from './src/human-behavior.js';
 import config from './config.js';
 import chalk from 'chalk';
@@ -26,6 +27,22 @@ async function main() {
   console.log(chalk.dim(`  Browse Time:     ${config.siteBrowseMin}s - ${config.siteBrowseMax}s`));
   console.log(chalk.dim(`  Internal Pages:  ${config.internalPagesMin} - ${config.internalPagesMax}`));
   console.log(chalk.dim(`  Proxies:         ${config.proxies.length > 0 ? config.proxies.length + ' configured' : 'none (direct)'}`));
+  console.log(chalk.dim(`  2Captcha:        ${config.twoCaptchaApiKey ? 'configured' : 'not configured (manual solve only)'}`));
+
+  // ── 2Captcha Balance Check ──
+  if (config.twoCaptchaApiKey) {
+    console.log(chalk.bold.blue(`\n══════════════════════════════════════════════════════`));
+    console.log(chalk.bold.blue(`  Checking 2Captcha Balance`));
+    console.log(chalk.bold.blue(`══════════════════════════════════════════════════════`));
+    try {
+      await check2CaptchaBalance();
+    } catch (err) {
+      // Balance is zero — fatal error, cannot auto-solve
+      console.log(chalk.red.bold(`\n  ✗ ${err.message}`));
+      console.log(chalk.red(`  Cannot proceed with auto-solve. Add funds or remove 2CAPTCHA_API_KEY to use manual mode.\n`));
+      process.exit(1);
+    }
+  }
 
   // SETUP PROFILES
   if (config.loginEmail && config.accounts && config.accounts.length > 0) {

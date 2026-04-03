@@ -141,27 +141,28 @@ export async function launchBrowser(retryCount = 0, specificAccount = null, perf
   };
 
   let anonymizedProxyUrl = null;
+  let rawProxyUrl = null;
 
   // Add proxy if configured
   if (config.proxies && config.proxies.length > 0) {
     const proxy = randomFrom(config.proxies);
-    let proxyUrl = proxy;
+    rawProxyUrl = proxy;
     
-    if (!proxyUrl.includes('://')) {
-      proxyUrl = `http://${proxy}`;
-    } else if (proxyUrl.startsWith('https://')) {
-      proxyUrl = proxyUrl.replace('https://', 'http://');
+    if (!rawProxyUrl.includes('://')) {
+      rawProxyUrl = `http://${proxy}`;
+    } else if (rawProxyUrl.startsWith('https://')) {
+      rawProxyUrl = rawProxyUrl.replace('https://', 'http://');
     }
 
     if (config.proxyUser && config.proxyPass) {
-      const urlObj = new URL(proxyUrl);
+      const urlObj = new URL(rawProxyUrl);
       urlObj.username = config.proxyUser;
       urlObj.password = config.proxyPass;
-      proxyUrl = urlObj.toString();
+      rawProxyUrl = urlObj.toString();
     }
     
     // Anonymize the proxy so Playwright doesn't have to handle proxy auth
-    anonymizedProxyUrl = await proxyChain.anonymizeProxy({ url: proxyUrl });
+    anonymizedProxyUrl = await proxyChain.anonymizeProxy({ url: rawProxyUrl });
     launchOptions.proxy = { server: anonymizedProxyUrl };
   }
 
@@ -180,11 +181,16 @@ export async function launchBrowser(retryCount = 0, specificAccount = null, perf
     }
     const page = context.pages()[0] || await context.newPage();
     
+    // Store the raw proxy URL so captcha-solver can use it natively
+    if (rawProxyUrl) {
+      page.rawProxyUrl = rawProxyUrl;
+    }
+    
     if (account && performLogin) {
       await loginToGoogle(page, account, profileDir);
     }
     
-    return { context, page, viewport, timezone, locale, account };
+    return { context, page, viewport, timezone, locale, account, proxyString: anonymizedProxyUrl };
   } catch (err) {
     if (config.proxies && config.proxies.length > 0) {
       console.log(`  ⚠ Browser launch or proxy failed, retrying with another proxy (${retryCount + 1}/5)...`);

@@ -107,6 +107,12 @@ const config = {
     : [],
   proxyUser: process.env.PROXY_USER || '',
   proxyPass: process.env.PROXY_PASS || '',
+
+  // ── 2Captcha (automatic reCAPTCHA solving) ────────────────
+  twoCaptchaApiKey: process.env['2CAPTCHA_API_KEY'] || '',
+
+  // ── Diagnostics ────────────────────────────────────────────
+  showProxyIp: process.env.SHOW_PROXY_IP === 'true',
 };
 
 export default config;

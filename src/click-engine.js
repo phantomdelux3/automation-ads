@@ -8,6 +8,7 @@ import {
   sleep,
   gaussianDelay,
 } from './human-behavior.js';
+import { autoSolveRecaptcha } from './captcha-solver.js';
 import config from '../config.js';
 import chalk from 'chalk';
 
@@ -163,11 +164,38 @@ async function buildSearchHistory(page) {
   console.log(chalk.green(`\n  ✓ Search history built\n`));
 }
 
+// ─── IP Verification Tool ───────────────────────────────────
+
+/**
+ * Pings an external IP lookup to explicitly expose the proxy's current exit path.
+ * Injected on major page navigations to catch per-request proxy rotation mismatches.
+ */
+async function checkProxyIp(page, label) {
+  if (!config.showProxyIp) return;
+  try {
+    const proxyIp = await page.evaluate(async () => {
+      try {
+        const res = await fetch('https://api.ipify.org?format=json');
+        if (res.ok) {
+          const data = await res.json();
+          return data.ip;
+        }
+      } catch (e) {}
+      return null;
+    });
+    if (proxyIp) {
+      console.log(chalk.magenta(`  → [${label}] Proxy IP: ${proxyIp}`));
+    }
+  } catch (err) {}
+}
+
 // ─── reCAPTCHA Detection ────────────────────────────────────
 
 /**
  * Detect reCAPTCHA / "unusual traffic" page from Google.
- * If detected, print a loud message and wait for user to solve it.
+ * If detected:
+ *   1. First try auto-solving via 2Captcha (if API key is configured)
+ *   2. Fall back to waiting for manual solve if auto-solve fails
  */
 async function detectAndHandleRecaptcha(page) {
   let isRecaptcha = false;
@@ -193,11 +221,39 @@ async function detectAndHandleRecaptcha(page) {
 
   if (!isRecaptcha) return false;
 
-  console.log(chalk.red.bold(`\n  ╔══════════════════════════════════════════════╗`));
-  console.log(chalk.red.bold(`  ║  🛑  reCAPTCHA DETECTED — SOLVE IT NOW!     ║`));
-  console.log(chalk.red.bold(`  ║  The browser window is waiting for you.      ║`));
-  console.log(chalk.red.bold(`  ║  Solve the CAPTCHA manually, then wait...    ║`));
-  console.log(chalk.red.bold(`  ╚══════════════════════════════════════════════╝\n`));
+  console.log(chalk.red.bold(`\n  ╔══════════════════════════════════════════════════════╗`));
+  console.log(chalk.red.bold(`  ║  🛑  reCAPTCHA DETECTED!                              ║`));
+  console.log(chalk.red.bold(`  ╚══════════════════════════════════════════════════════╝\n`));
+
+  // ── Attempt auto-solve via 2Captcha ──
+  if (config.twoCaptchaApiKey) {
+    console.log(chalk.blue.bold(`  🤖 Attempting automatic solve via 2Captcha...\n`));
+
+    try {
+      const autoSolved = await autoSolveRecaptcha(page, 3);
+      if (autoSolved) {
+        console.log(chalk.green.bold(`  ✅ reCAPTCHA auto-solved successfully! Continuing...\n`));
+        await sleep(2000, 3000);
+        return true;
+      }
+      console.log(chalk.yellow(`  ⚠ Auto-solve failed, falling back to manual solve...\n`));
+    } catch (err) {
+      if (err.message.includes('Execution context was destroyed') || err.message.includes('Target closed')) {
+        console.log(chalk.green(`  ✓ Page navigated during auto-solve (likely solved)!\n`));
+        await sleep(3000, 5000);
+        return true;
+      }
+      console.log(chalk.yellow(`  ⚠ Auto-solve error: ${err.message}. Falling back to manual...\n`));
+    }
+  } else {
+    console.log(chalk.dim(`  → No 2Captcha API key configured — waiting for manual solve`));
+  }
+
+  // ── Manual solve fallback ──
+  console.log(chalk.red.bold(`  ╔══════════════════════════════════════════════════════╗`));
+  console.log(chalk.red.bold(`  ║  👆 SOLVE THE CAPTCHA MANUALLY IN THE BROWSER!       ║`));
+  console.log(chalk.red.bold(`  ║  Waiting for you to solve it...                      ║`));
+  console.log(chalk.red.bold(`  ╚══════════════════════════════════════════════════════╝\n`));
 
   // Poll every 5 seconds until reCAPTCHA is gone
   let attempts = 0;
@@ -261,6 +317,8 @@ async function searchGoogle(page, keyword) {
     timeout: 60000,
   });
 
+  await checkProxyIp(page, 'Google Search');
+
   // Accept consent if it shows again
   await acceptGoogleConsent(page);
 
@@ -293,11 +351,28 @@ async function searchGoogle(page, keyword) {
   // Small pause after typing — like a user reviewing their query
   await sleep(800, 2000);
 
-  // Dismiss autocomplete suggestions by pressing Escape then Enter
-  // This prevents clicking on a suggestion instead of searching
-  await page.keyboard.press('Escape');
-  await sleep(200, 500);
+  // Press Enter to submit the search
   await page.keyboard.press('Enter');
+  
+  // Wait a moment and check if navigation started. 
+  // Sometimes Enter is intercepted by autocomplete or focus is lost.
+  await sleep(1000);
+  try {
+    const isSearchPage = await page.evaluate(() => window.location.href.includes('/search?'));
+    if (!isSearchPage) {
+      console.log(chalk.dim(`  → Enter key didn't trigger search, forcing form submission...`));
+      await page.evaluate(() => {
+        const gForm = document.querySelector('form[action="/search"]');
+        if (gForm) gForm.submit();
+      });
+    }
+  } catch (err) {
+    if (err.message.includes('Execution context was destroyed') || err.message.includes('Target closed')) {
+      // The page navigated away during our check—this means Enter worked perfectly!
+    } else {
+      throw err;
+    }
+  }
 
   console.log(chalk.dim(`  → Waiting for search results...`));
 
@@ -426,7 +501,6 @@ async function findSponsoredAd(page, targetDomains) {
       }
     });
 
-  // Now match against target domains
     for (const ad of results) {
       let adHostname = '';
       try { adHostname = new URL(ad.href).hostname; } catch {}
@@ -435,7 +509,8 @@ async function findSponsoredAd(page, targetDomains) {
       for (const domain of domains) {
         const targetMain = getMainDomain(domain);
         if (adMainDomain === targetMain || adMainDomain.endsWith('.' + targetMain) || combined.includes(targetMain)) {
-          if (!matchedAds.some(m => m.href === ad.href)) {
+          // Only add one link per target domain to avoid repeating the same site
+          if (!matchedAds.some(m => m.domain === domain) && !matchedAds.some(m => m.href === ad.href)) {
              matchedAds.push({
                href: ad.href,
                trackingUrl: ad.trackingUrl,
@@ -532,7 +607,8 @@ async function findOrganicResult(page, targetDomains) {
       for (const domain of domains) {
         const targetMain = getMainDomain(domain);
         if (resultMainDomain === targetMain || resultMainDomain.endsWith('.' + targetMain)) {
-           if (!matchedResults.some(m => m.href === result.href)) {
+           // Only add one link per target domain to avoid repeating the same site
+           if (!matchedResults.some(m => m.domain === domain) && !matchedResults.some(m => m.href === result.href)) {
              matchedResults.push({
                href: result.href,
                displayUrl: result.displayUrl,
@@ -575,27 +651,22 @@ async function findOrganicResult(page, targetDomains) {
 
 /**
  * Click on the matched sponsored ad naturally.
- * Scrolls it into view, hovers, then clicks with human-like timing.
+ * Scrolls it into view, hovers, then clicks with CloakBrowser's built-in humanizer.
  */
 async function clickSponsoredAd(page, adInfo) {
-  console.log(chalk.dim(`  → Scrolling to sponsored ad...`));
+  console.log(chalk.dim(`  → Locating sponsored ad...`));
 
-  // Scroll the ad into view if needed
+  // Find the ad out and mark it
   const clicked = await page.evaluate(async (targetHref) => {
-    // Find the actual clickable link
     const allLinks = document.querySelectorAll('#tads a, #tadsb a, [data-text-ad] a, [data-rw]');
+    
+    // Find the actual clickable link
     for (const link of allLinks) {
       if (link.href && link.href === targetHref) {
+        link.removeAttribute('target');
+        link.setAttribute('data-target-click', 'true');
         link.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        return {
-          found: true,
-          rect: {
-            x: link.getBoundingClientRect().left + link.getBoundingClientRect().width / 2,
-            y: link.getBoundingClientRect().top + link.getBoundingClientRect().height / 2,
-            width: link.getBoundingClientRect().width,
-            height: link.getBoundingClientRect().height,
-          },
-        };
+        return { found: true };
       }
     }
 
@@ -605,16 +676,10 @@ async function clickSponsoredAd(page, adInfo) {
       try {
         const linkDomain = new URL(link.href).hostname.replace(/^www\./, '');
         if (link.href && (linkDomain === domain || linkDomain.endsWith('.' + domain))) {
+          link.removeAttribute('target');
+          link.setAttribute('data-target-click', 'true');
           link.scrollIntoView({ behavior: 'smooth', block: 'center' });
-          return {
-            found: true,
-            rect: {
-              x: link.getBoundingClientRect().left + link.getBoundingClientRect().width / 2,
-              y: link.getBoundingClientRect().top + link.getBoundingClientRect().height / 2,
-              width: link.getBoundingClientRect().width,
-              height: link.getBoundingClientRect().height,
-            },
-          };
+          return { found: true };
         }
       } catch {}
     }
@@ -636,16 +701,10 @@ async function clickSponsoredAd(page, adInfo) {
             if (linkDomain === targetMain || linkDomain.endsWith('.' + targetMain)) {
               const parent = link.closest('[data-text-ad]') || link.closest('.uEierd') || link.closest('#tads') || link.closest('#tadsb');
               if (parent) {
+                link.removeAttribute('target');
+                link.setAttribute('data-target-click', 'true');
                 link.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                return {
-                  found: true,
-                  rect: {
-                    x: link.getBoundingClientRect().left + link.getBoundingClientRect().width / 2,
-                    y: link.getBoundingClientRect().top + link.getBoundingClientRect().height / 2,
-                    width: link.getBoundingClientRect().width,
-                    height: link.getBoundingClientRect().height,
-                  },
-                };
+                return { found: true };
               }
             }
           }
@@ -658,11 +717,15 @@ async function clickSponsoredAd(page, adInfo) {
       console.log(chalk.yellow(`  ⚠ Could not locate the ad link to click`));
       return false;
     }
-
-    Object.assign(clicked, domainClicked);
   }
 
-  return await performHumanClick(page, clicked.rect, 'Sponsored ad');
+  // Use CloakBrowser's native humanized click
+  console.log(chalk.dim(`  → Executing natural click via CloakBrowser...`));
+  await sleep(1000, 2000);
+  await page.click('[data-target-click="true"]');
+  console.log(chalk.green(`  ✓ Sponsored ad clicked!`));
+
+  return true;
 }
 
 // ─── Click Organic Result ───────────────────────────────────
@@ -672,7 +735,7 @@ async function clickSponsoredAd(page, adInfo) {
  * Searches ALL links on the page (not just ad containers).
  */
 async function clickOrganicResult(page, resultInfo) {
-  console.log(chalk.dim(`  → Scrolling to organic result...`));
+  console.log(chalk.dim(`  → Locating organic result...`));
 
   // Step 1: Find the matching link, mark it with a data attribute, and scroll to it
   const found = await page.evaluate(({ targetHref, targetDomain }) => {
@@ -682,7 +745,8 @@ async function clickOrganicResult(page, resultInfo) {
     // First try exact href match
     for (const link of allLinks) {
       if (link.href && link.href === targetHref && link.offsetWidth > 0 && link.offsetHeight > 0) {
-        link.setAttribute('data-organic-target', 'true');
+        link.removeAttribute('target');
+        link.setAttribute('data-target-click', 'true');
         link.scrollIntoView({ behavior: 'smooth', block: 'center' });
         return true;
       }
@@ -695,7 +759,8 @@ async function clickOrganicResult(page, resultInfo) {
         const linkDomain = new URL(link.href).hostname.toLowerCase().replace(/^www\./, '');
         if (linkDomain === targetMain || linkDomain.endsWith('.' + targetMain)) {
           if (link.innerText?.trim().length > 0 || link.querySelector('h3')) {
-            link.setAttribute('data-organic-target', 'true');
+            link.removeAttribute('target');
+            link.setAttribute('data-target-click', 'true');
             link.scrollIntoView({ behavior: 'smooth', block: 'center' });
             return true;
           }
@@ -711,54 +776,11 @@ async function clickOrganicResult(page, resultInfo) {
     return false;
   }
 
-  // Step 2: Wait for smooth scroll to finish
+  // Use CloakBrowser's native humanized click
+  console.log(chalk.dim(`  → Executing natural click via CloakBrowser...`));
   await sleep(1500, 2500);
-
-  // Step 3: Re-measure coordinates now that scroll is done
-  const rect = await page.evaluate(() => {
-    const link = document.querySelector('a[data-organic-target="true"]');
-    if (!link) return null;
-    const r = link.getBoundingClientRect();
-    return {
-      x: r.left + r.width / 2,
-      y: r.top + r.height / 2,
-      width: r.width,
-      height: r.height,
-    };
-  });
-
-  if (!rect) {
-    console.log(chalk.yellow(`  ⚠ Could not re-measure the organic result position`));
-    return false;
-  }
-
-  return await performHumanClick(page, rect, 'Organic result');
-}
-
-// ─── Shared Human Click ─────────────────────────────────────
-
-/**
- * Perform a human-like click at the given rect position.
- */
-async function performHumanClick(page, rect, label) {
-  await sleep(1000, 2000);
-
-  // Random offset within the link (not dead center — humans never click dead center)
-  const offsetX = (Math.random() - 0.5) * rect.width * 0.3;
-  const offsetY = (Math.random() - 0.5) * rect.height * 0.3;
-  const clickX = Math.round(rect.x + offsetX);
-  const clickY = Math.round(rect.y + offsetY);
-
-  // Human-like mouse approach
-  console.log(chalk.dim(`  → Moving to ${label.toLowerCase()}...`));
-  await page.mouse.move(clickX - randomInt(60, 120), clickY - randomInt(20, 50));
-  await sleep(200, 500);
-  await page.mouse.move(clickX + randomInt(-5, 5), clickY + randomInt(-3, 3));
-  await sleep(150, 400);
-
-  // Click!
-  await page.mouse.click(clickX, clickY);
-  console.log(chalk.green(`  ✓ ${label} clicked!`));
+  await page.click('[data-target-click="true"]');
+  console.log(chalk.green(`  ✓ Organic result clicked!`));
 
   return true;
 }
@@ -786,6 +808,10 @@ async function browseTargetSite(page, context) {
 
   const pages = context.pages();
   const activePage = pages[pages.length - 1];
+  
+  // Verify IP consistency upon target navigation
+  await checkProxyIp(activePage, 'Target Entry');
+
   const currentUrl = activePage.url();
   let currentHostname;
 
@@ -946,7 +972,11 @@ export async function runSession(sessionNumber, keyword) {
     const page = result.page;
 
     const size = page.viewportSize();
-    console.log(chalk.dim(`  → TZ: ${result.timezone} | Locale: ${result.locale} | Viewport: ${size.width}x${size.height}`));
+    const profileText = result.account?.email || 'Anonymous';
+    console.log(chalk.dim(`  → Profile: ${profileText} | TZ: ${result.timezone} | Locale: ${result.locale} | Viewport: ${size.width}x${size.height}`));
+
+    // Log the initial session IP
+    await checkProxyIp(page, 'Session Start');
 
     // 2. Warm up Google cookies (reduces reCAPTCHA)
     await warmupGoogleCookies(page);
@@ -962,10 +992,25 @@ export async function runSession(sessionNumber, keyword) {
     const fastCheck = await page.evaluate(({ domains, onlySponsored }) => {
       function getMainDomain(hostname) { return hostname.toLowerCase().replace(/^www\./, ''); }
 
-      // Count distinct sponsored ad blocks
-      const adBlockEls = document.querySelectorAll('#tads > *, #tadsb > *, [data-text-ad], .uEierd');
+      // 1. Gather all distinct sponsored domains on the page to accurately count advertisers (not raw elements)
+      const allSponsoredDomains = new Set();
+      const allAdLinks = document.querySelectorAll('#tads a, #tadsb a, [data-text-ad] a, .uEierd a, .commercial-unit-desktop-top a, [data-rw]');
+      
+      for (const link of allAdLinks) {
+        if (!link.href || link.href.startsWith('javascript:')) continue;
+        try {
+          const mDomain = getMainDomain(new URL(link.href).hostname);
+          if (mDomain && !mDomain.includes('google')) {
+            allSponsoredDomains.add(mDomain);
+          }
+        } catch {}
+      }
+
+      // Count distinct sponsored ad blocks as a fallback
+      const adBlockEls = document.querySelectorAll('#tads > div, #tadsb > div, .uEierd');
       const sponsoredSpans = Array.from(document.querySelectorAll('span')).filter(s => s.textContent?.trim() === 'Sponsored' || s.textContent?.trim() === 'Ad');
-      const sponsoredCount = adBlockEls.length || sponsoredSpans.length;
+      
+      const sponsoredCount = allSponsoredDomains.size || adBlockEls.length || sponsoredSpans.length;
       const hasSponsored = sponsoredCount > 0;
 
       let targetInSponsored = false;
@@ -976,7 +1021,6 @@ export async function runSession(sessionNumber, keyword) {
       const seenOrganicTargets = new Set();
 
       // Check for targets in Sponsored Ads
-      const allAdLinks = document.querySelectorAll('#tads a, #tadsb a, [data-text-ad] a, .uEierd a, .commercial-unit-desktop-top a, [data-rw]');
       for (const link of allAdLinks) {
         if (!link.href) continue;
         let adMainDomain = '';
@@ -985,8 +1029,8 @@ export async function runSession(sessionNumber, keyword) {
           const targetMain = getMainDomain(domain);
           if (adMainDomain === targetMain || adMainDomain.endsWith('.' + targetMain) || link.href.toLowerCase().includes(targetMain)) {
             targetInSponsored = true;
-            if (!seenSponsoredTargets.has(link.href)) {
-              seenSponsoredTargets.add(link.href);
+            if (!seenSponsoredTargets.has(targetMain)) {
+              seenSponsoredTargets.add(targetMain);
               sponsoredTargetCount++;
             }
           }
@@ -1004,8 +1048,9 @@ export async function runSession(sessionNumber, keyword) {
             const targetMain = getMainDomain(domain);
             if (organicMainDomain === targetMain || organicMainDomain.endsWith('.' + targetMain) || link.href.toLowerCase().includes(targetMain)) {
               targetInOrganic = true;
-              if (!seenOrganicTargets.has(link.href)) {
-                seenOrganicTargets.add(link.href);
+              // Ensure we don't count an organic match if it was already counted as sponsored
+              if (!seenOrganicTargets.has(targetMain) && !seenSponsoredTargets.has(targetMain)) {
+                seenOrganicTargets.add(targetMain);
                 organicTargetCount++;
               }
             }
