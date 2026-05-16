@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(node --check index.js)",
+      "Bash(node --check src/click-engine.js)"
+    ]
+  }
+}

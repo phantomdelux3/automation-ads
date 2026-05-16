@@ -79,10 +79,11 @@ async function main() {
 
   const globalStats = {
     totalSessions: 0,
-    successes: 0,
-    failures: 0,
-    targetClicks: 0,
-    // Map<keyword, { sponsored: number, targets: number }>
+    successes: 0,    // sessions that produced ≥1 verified target click
+    failures: 0,     // sessions that errored
+    skipped: 0,      // sessions where target not on page / click never landed
+    targetClicks: 0, // total verified clicks that landed on target site
+    // Map<keyword, { sponsored: number, targets: number, clicked: number, sessions: number }>
     keywordData: new Map(),
   };
 
@@ -92,27 +93,35 @@ async function main() {
     // Derive counts from keywordData for the table header
     const kwsWithSponsored = [...globalStats.keywordData.values()].filter(d => d.sponsored > 0).length;
     const kwsWithTarget = [...globalStats.keywordData.values()].filter(d => d.targets > 0).length;
+    const kwsClicked   = [...globalStats.keywordData.values()].filter(d => d.clicked > 0).length;
     console.log(chalk.bold.magenta(`
 ╔══════════════════════════════════════════════════════╗
 ║               Live Progress Report                   ║
 ╠══════════════════════════════════════════════════════╣
 ║ Total Sessions Run:   ${String(globalStats.totalSessions).padEnd(31)}║
-║ Successful Clicks:    ${chalk.green(String(globalStats.successes).padEnd(31))}║
-║ Failed Sessions:      ${chalk.red(String(globalStats.failures).padEnd(31))}║
+║ Successful Sessions:  ${chalk.green(String(globalStats.successes).padEnd(31))}║
+║ Skipped (no target):  ${chalk.yellow(String(globalStats.skipped).padEnd(31))}║
+║ Failed (errors):      ${chalk.red(String(globalStats.failures).padEnd(31))}║
 ║ Target Clicks Made:   ${chalk.cyan(String(globalStats.targetClicks).padEnd(31))}║
 ║ KWs w/ Sponsored Ads: ${String(kwsWithSponsored).padEnd(31)}║
 ║ KWs w/ Target Domain: ${String(kwsWithTarget).padEnd(31)}║
+║ KWs w/ Verified Click:${String(kwsClicked).padEnd(31)}║
 ╚══════════════════════════════════════════════════════╝
     `));
     const sponsoredKws = [...globalStats.keywordData.entries()].filter(([,d]) => d.sponsored > 0);
     const targetKws    = [...globalStats.keywordData.entries()].filter(([,d]) => d.targets > 0);
+    const clickedKws   = [...globalStats.keywordData.entries()].filter(([,d]) => d.clicked > 0);
     if (sponsoredKws.length > 0) {
       console.log(chalk.yellow(`  Ads Found For:`));
-      sponsoredKws.forEach(([kw, d]) => console.log(chalk.dim(`    • "${kw}" — ${d.sponsored} sponsored ad(s)`)));
+      sponsoredKws.forEach(([kw, d]) => console.log(chalk.dim(`    • "${kw}" — ${d.sponsored} sponsored ad(s) on page`)));
     }
     if (targetKws.length > 0) {
       console.log(chalk.green(`  Targets Found For:`));
-      targetKws.forEach(([kw, d]) => console.log(chalk.dim(`    • "${kw}" — ${d.targets} target link(s)`)));
+      targetKws.forEach(([kw, d]) => console.log(chalk.dim(`    • "${kw}" — ${d.targets} target link(s) on page`)));
+    }
+    if (clickedKws.length > 0) {
+      console.log(chalk.cyan(`  Verified Target Clicks Per Keyword:`));
+      clickedKws.forEach(([kw, d]) => console.log(chalk.dim(`    • "${kw}" — ${d.clicked} click(s) across ${d.sessions} session(s)`)));
     }
   }, 60000);
 
@@ -143,6 +152,8 @@ async function main() {
         if (stats) {
           if (stats.success) {
             globalStats.successes++;
+          } else if (stats.skipped) {
+            globalStats.skipped++;
           } else {
             globalStats.failures++;
           }
@@ -150,12 +161,17 @@ async function main() {
             globalStats.targetClicks += stats.clickedTargets;
           }
           // Accumulate per-keyword data
-          const existing = globalStats.keywordData.get(keyword) || { sponsored: 0, targets: 0 };
+          const existing = globalStats.keywordData.get(keyword)
+            || { sponsored: 0, targets: 0, clicked: 0, sessions: 0 };
           if (stats.hasSponsored) {
             existing.sponsored = Math.max(existing.sponsored, stats.sponsoredCount || 0);
           }
           if (stats.hasTargetDomain) {
             existing.targets = Math.max(existing.targets, stats.targetCount || 0);
+          }
+          if (stats.clickedTargets > 0) {
+            existing.clicked  += stats.clickedTargets;
+            existing.sessions += 1;
           }
           globalStats.keywordData.set(keyword, existing);
         } else {
@@ -184,6 +200,7 @@ async function main() {
 
   const kwsWithSponsored = [...globalStats.keywordData.values()].filter(d => d.sponsored > 0).length;
   const kwsWithTarget    = [...globalStats.keywordData.values()].filter(d => d.targets > 0).length;
+  const kwsClicked       = [...globalStats.keywordData.values()].filter(d => d.clicked > 0).length;
 
   console.log(chalk.bold.magenta(`
 ╔══════════════════════════════════════════════════════╗
@@ -191,26 +208,34 @@ async function main() {
 ╠══════════════════════════════════════════════════════╣
 ║ Keywords:             ${String(config.keywords.length).padEnd(31)}║
 ║ Total Sessions:       ${String(globalStats.totalSessions).padEnd(31)}║
-║ Successful Clicks:    ${chalk.green(String(globalStats.successes).padEnd(31))}║
-║ Failed Sessions:      ${chalk.red(String(globalStats.failures).padEnd(31))}║
+║ Successful Sessions:  ${chalk.green(String(globalStats.successes).padEnd(31))}║
+║ Skipped (no target):  ${chalk.yellow(String(globalStats.skipped).padEnd(31))}║
+║ Failed (errors):      ${chalk.red(String(globalStats.failures).padEnd(31))}║
 ║ Target Clicks Made:   ${chalk.cyan(String(globalStats.targetClicks).padEnd(31))}║
 ║ Elapsed Time:         ${String(elapsed + 's').padEnd(31)}║
 ║ KWs w/ Sponsored Ads: ${String(kwsWithSponsored).padEnd(31)}║
 ║ KWs w/ Target Domain: ${String(kwsWithTarget).padEnd(31)}║
+║ KWs w/ Verified Click:${String(kwsClicked).padEnd(31)}║
 ╚══════════════════════════════════════════════════════╝
   `));
 
   const sponsoredKws = [...globalStats.keywordData.entries()].filter(([,d]) => d.sponsored > 0);
   const targetKws    = [...globalStats.keywordData.entries()].filter(([,d]) => d.targets > 0);
+  const clickedKws   = [...globalStats.keywordData.entries()].filter(([,d]) => d.clicked > 0);
 
   if (sponsoredKws.length > 0) {
     console.log(chalk.yellow(`\n[Keywords with Sponsored Ads]:`));
-    sponsoredKws.forEach(([kw, d]) => console.log(chalk.dim(`  • "${kw}" — ${d.sponsored} sponsored ad(s)`)));
+    sponsoredKws.forEach(([kw, d]) => console.log(chalk.dim(`  • "${kw}" — ${d.sponsored} sponsored ad(s) on page`)));
   }
 
   if (targetKws.length > 0) {
     console.log(chalk.green(`\n[Keywords with Target Domain Found]:`));
-    targetKws.forEach(([kw, d]) => console.log(chalk.dim(`  • "${kw}" — ${d.targets} target link(s) found`)));
+    targetKws.forEach(([kw, d]) => console.log(chalk.dim(`  • "${kw}" — ${d.targets} target link(s) found on page`)));
+  }
+
+  if (clickedKws.length > 0) {
+    console.log(chalk.cyan(`\n[Verified Target Clicks Per Keyword]:`));
+    clickedKws.forEach(([kw, d]) => console.log(chalk.dim(`  • "${kw}" — ${d.clicked} click(s) across ${d.sessions} session(s)`)));
   }
 }
 

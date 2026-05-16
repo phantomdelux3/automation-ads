@@ -959,7 +959,11 @@ export async function runSession(sessionNumber, keyword) {
     keyword,
     success: false,
     hasSponsored: false,
-    hasTargetDomain: false
+    hasTargetDomain: false,
+    sponsoredCount: 0,
+    targetCount: 0,
+    clickedTargets: 0,
+    skipped: false,
   };
 
   let context;
@@ -1080,15 +1084,18 @@ export async function runSession(sessionNumber, keyword) {
     if (config.sponsoredOnly) {
       if (!fastCheck.hasSponsored) {
         console.log(chalk.yellow(`  ⚠ FAST FAIL: No sponsored ads found on page. Skipping session.`));
+        sessionStats.skipped = true;
         return sessionStats;
       }
       if (!fastCheck.targetInSponsored) {
         console.log(chalk.yellow(`  ⚠ FAST FAIL: Found ${fastCheck.sponsoredCount} sponsored ad(s) but target domain was NOT among them. Skipping session.`));
+        sessionStats.skipped = true;
         return sessionStats;
       }
     } else {
       if (!fastCheck.hasTarget) {
         console.log(chalk.yellow(`  ⚠ FAST FAIL: Target domains not found in sponsored or organic results. Skipping session.`));
+        sessionStats.skipped = true;
         return sessionStats;
       }
     }
@@ -1117,55 +1124,97 @@ export async function runSession(sessionNumber, keyword) {
 
     if (adInfos.length === 0) {
       console.log(chalk.yellow(`⚠ Session ${sessionNumber} — no matching result found for "${keyword}"`));
+      sessionStats.skipped = true;
       return sessionStats;
     }
 
     // 8. Click and browse ALL matched targets
+    const isOnTargetDomain = (url, targetDomain) => {
+      const targetMain = targetDomain.toLowerCase().replace(/^www\./, '');
+      try {
+        const host = new URL(url).hostname.toLowerCase().replace(/^www\./, '');
+        if (host === targetMain || host.endsWith('.' + targetMain)) return true;
+      } catch {}
+      return url.toLowerCase().includes(targetMain);
+    };
+
     for (let c = 0; c < adInfos.length; c++) {
       const adInfo = adInfos[c];
       console.log(chalk.dim(`  → Target ${c + 1}/${adInfos.length}: Clicking ${adInfo.type} result (${adInfo.domain})...`));
-      
+
       const clicked = adInfo.type === 'organic'
         ? await clickOrganicResult(page, adInfo)
         : await clickSponsoredAd(page, adInfo);
 
       if (!clicked) {
-        console.log(chalk.yellow(`  ⚠ Could not click target ${c + 1}`));
+        console.log(chalk.yellow(`  ⚠ Could not click target ${c + 1} — DOM click failed`));
         continue;
       }
-      
-      sessionStats.clickedTargets = (sessionStats.clickedTargets || 0) + 1;
 
-      // 9. Wait for navigation to the target site
+      // 9. Wait for navigation to leave Google search
       console.log(chalk.dim(`  → Waiting for navigation to target site...`));
+      let landedOnTarget = false;
       try {
         await page.waitForURL((url) => !url.toString().includes('google.com/search'), { timeout: 10000 });
       } catch {
-        // Navigation might not have happened — check current URL
-        const currentUrl = page.url();
-        if (currentUrl.includes('google.com/search')) {
-          console.log(chalk.yellow(`  ⚠ Navigation didn't happen, trying direct goto...`));
-          const gotoUrl = adInfo.trackingUrl || adInfo.href;
-          console.log(chalk.dim(`  → Direct goto URL: ${gotoUrl.substring(0, 100)}...`));
+        // Click did not trigger navigation — fall through to direct-goto fallback
+      }
+
+      // Give redirect chains a moment to resolve, then check landing URL
+      await sleep(1500, 2500);
+      let currentUrl = page.url();
+      landedOnTarget = isOnTargetDomain(currentUrl, adInfo.domain);
+
+      if (!landedOnTarget && currentUrl.includes('google.com/search')) {
+        console.log(chalk.yellow(`  ⚠ Click did not leave Google, trying direct goto...`));
+        const gotoUrl = adInfo.trackingUrl || adInfo.href;
+        console.log(chalk.dim(`  → Direct goto URL: ${gotoUrl.substring(0, 100)}...`));
+        try {
           await page.goto(gotoUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
+          await sleep(1500, 2500);
+          currentUrl = page.url();
+          landedOnTarget = isOnTargetDomain(currentUrl, adInfo.domain);
+        } catch (err) {
+          console.log(chalk.yellow(`  ⚠ Direct goto failed: ${err.message?.substring(0, 80)}`));
         }
       }
+
+      if (!landedOnTarget) {
+        console.log(chalk.yellow(`  ⚠ Target ${c + 1} click did NOT reach "${adInfo.domain}" (landed on ${currentUrl.substring(0, 80)}) — not counted`));
+        // Try to recover for the next iteration
+        if (c < adInfos.length - 1 && !currentUrl.includes('google.com/search')) {
+          try { await page.goBack({ waitUntil: 'networkidle', timeout: 10000 }); } catch {}
+        }
+        continue;
+      }
+
+      // Click verified — count it
+      sessionStats.clickedTargets += 1;
+
       await sleep(2000, 4000);
       await browseTargetSite(page, context);
 
       console.log(chalk.green(`  ✓ Browsed target ${c + 1} — "${adInfo.domain}" (${adInfo.type})`));
-      
+
       if (c < adInfos.length - 1) {
          console.log(chalk.dim(`  → Navigating back to Google Search for next target...`));
-         await page.goBack({ waitUntil: 'networkidle' });
+         try {
+           await page.goBack({ waitUntil: 'networkidle', timeout: 15000 });
+         } catch {
+           console.log(chalk.dim(`  → goBack failed, navigating to Google directly`));
+         }
          // Re-find the next element to scroll
          await sleep(2000, 4000);
          await humanScroll(page);
       }
     }
 
-    console.log(chalk.green(`✓ Session ${sessionNumber} completed — clicked ${sessionStats.clickedTargets} targets`));
-    sessionStats.success = true;
+    sessionStats.success = sessionStats.clickedTargets > 0;
+    if (sessionStats.success) {
+      console.log(chalk.green(`✓ Session ${sessionNumber} completed — clicked ${sessionStats.clickedTargets}/${adInfos.length} target(s)`));
+    } else {
+      console.log(chalk.yellow(`⚠ Session ${sessionNumber} — found ${adInfos.length} target(s) but none could be clicked through to landing site`));
+    }
     return sessionStats;
   } catch (err) {
     console.log(chalk.red(`✗ Session ${sessionNumber} failed: ${err.message}`));
