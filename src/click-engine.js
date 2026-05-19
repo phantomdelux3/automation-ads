@@ -658,6 +658,11 @@ async function clickSponsoredAd(page, adInfo) {
 
   // Find the ad out and mark it
   const clicked = await page.evaluate(async (targetHref) => {
+    // Clear any stale marker left over from a previously clicked target —
+    // a bfcache-restored results page keeps the old data-target-click,
+    // which would make the click selector match two elements.
+    document.querySelectorAll('[data-target-click]').forEach((el) => el.removeAttribute('data-target-click'));
+
     const allLinks = document.querySelectorAll('#tads a, #tadsb a, [data-text-ad] a, [data-rw]');
     
     // Find the actual clickable link
@@ -739,6 +744,9 @@ async function clickOrganicResult(page, resultInfo) {
 
   // Step 1: Find the matching link, mark it with a data attribute, and scroll to it
   const found = await page.evaluate(({ targetHref, targetDomain }) => {
+    // Clear any stale marker left over from a previously clicked target.
+    document.querySelectorAll('[data-target-click]').forEach((el) => el.removeAttribute('data-target-click'));
+
     const targetMain = targetDomain.toLowerCase().replace(/^www\./, '');
     const allLinks = document.querySelectorAll('#search a, #rso a, #main a');
 
@@ -783,6 +791,56 @@ async function clickOrganicResult(page, resultInfo) {
   console.log(chalk.green(`  ✓ Organic result clicked!`));
 
   return true;
+}
+
+// ─── Return To Search Results ───────────────────────────────
+
+/**
+ * Return to the Google search results page after browsing a target site.
+ *
+ * Browsing a target pushes several entries onto the history stack — the
+ * landing page plus every internal link (each uses page.goto). A single
+ * page.goBack() only rewinds one step, so when a session has multiple
+ * targets the loop would otherwise end up on a leftover internal page
+ * and fail to locate any further ads.
+ *
+ * Strategy: keep going back until the URL is the Google results page. If
+ * history runs out before we get there, fall back to navigating the
+ * stored results URL directly.
+ *
+ * Returns true if we end up on the results page, false otherwise.
+ */
+async function returnToSearchResults(page, searchResultsUrl) {
+  for (let attempt = 0; attempt < 15; attempt++) {
+    if (page.url().includes('google.com/search')) {
+      return true;
+    }
+    try {
+      await page.goBack({ waitUntil: 'domcontentloaded', timeout: 15000 });
+    } catch {
+      // No more history entries to rewind through
+      break;
+    }
+    await sleep(600, 1400);
+  }
+
+  if (page.url().includes('google.com/search')) {
+    return true;
+  }
+
+  // History exhausted without reaching the results page — reload it directly.
+  if (searchResultsUrl) {
+    console.log(chalk.dim(`  → goBack didn't reach results — reloading search URL...`));
+    try {
+      await page.goto(searchResultsUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
+      await sleep(1500, 3000);
+    } catch (err) {
+      console.log(chalk.yellow(`  ⚠ Could not reload search results: ${err.message?.substring(0, 60)}`));
+      return false;
+    }
+  }
+
+  return page.url().includes('google.com/search');
 }
 
 // ─── Natural Site Browsing ──────────────────────────────────
@@ -987,6 +1045,11 @@ export async function runSession(sessionNumber, keyword) {
     // 4. Search the keyword on Google
     await searchGoogle(page, keyword);
 
+    // Remember the search results URL — browsing a target pushes internal
+    // pages onto history, so we need a reliable anchor to return to between
+    // multiple targets in the same session.
+    const searchResultsUrl = page.url();
+
     // 5. FAST FAIL CHECKS - Before wasting time scrolling
     console.log(chalk.dim(`  → FAST FAIL CHECK: Validating presence & targets...`));
     const fastCheck = await page.evaluate(({ domains, onlySponsored }) => {
@@ -1157,7 +1220,11 @@ export async function runSession(sessionNumber, keyword) {
       
       if (c < adInfos.length - 1) {
          console.log(chalk.dim(`  → Navigating back to Google Search for next target...`));
-         await page.goBack({ waitUntil: 'networkidle' });
+         const backOk = await returnToSearchResults(page, searchResultsUrl);
+         if (!backOk) {
+           console.log(chalk.yellow(`  ⚠ Could not return to search results — ending session early`));
+           break;
+         }
          // Re-find the next element to scroll
          await sleep(2000, 4000);
          await humanScroll(page);

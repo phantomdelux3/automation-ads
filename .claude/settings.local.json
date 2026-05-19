@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\Phantom Deluxe\\\\Desktop\\\\Pennywise\\\\bot-untracable-click\" -Recurse -File)",
+      "Bash(Select-Object -ExpandProperty FullName)",
+      "PowerShell(head *)",
+      "Bash(node --check \"C:\\\\Users\\\\Phantom Deluxe\\\\Desktop\\\\Pennywise\\\\bot-untracable-click\\\\src\\\\click-engine.js\")"
+    ]
+  }
+}
