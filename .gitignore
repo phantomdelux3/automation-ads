@@ -1,6 +1,7 @@
 node_modules/
 .env
 *.log
+*.bak
 chrome-profiles/
 stealth-test-result.png
 ad-diagnostic.png

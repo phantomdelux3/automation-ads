@@ -4,7 +4,11 @@
       "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\Phantom Deluxe\\\\Desktop\\\\Pennywise\\\\bot-untracable-click\" -Recurse -File)",
       "Bash(Select-Object -ExpandProperty FullName)",
       "PowerShell(head *)",
-      "Bash(node --check \"C:\\\\Users\\\\Phantom Deluxe\\\\Desktop\\\\Pennywise\\\\bot-untracable-click\\\\src\\\\click-engine.js\")"
+      "Bash(node --check \"C:\\\\Users\\\\Phantom Deluxe\\\\Desktop\\\\Pennywise\\\\bot-untracable-click\\\\src\\\\click-engine.js\")",
+      "Bash(npm install *)",
+      "Bash(node --check dashboard.js)",
+      "Bash(node --check src/click-engine.js)",
+      "Bash(node -e \"import\\('./config.js'\\).then\\(m=>{const c=m.default; const w=c.captchaWaitMinutes; console.log\\('captchaWaitMinutes:', w\\); console.log\\('maxAttempts \\(poll every 5s\\):', Math.max\\(1, Math.round\\(\\(w*60\\)/5\\)\\)\\);}\\)\")"
     ]
   }
 }

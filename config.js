@@ -111,6 +111,11 @@ const config = {
   // ── 2Captcha (automatic reCAPTCHA solving) ────────────────
   twoCaptchaApiKey: process.env['2CAPTCHA_API_KEY'] || '',
 
+  // ── CAPTCHA Wait ──────────────────────────────────────────
+  // Max minutes to wait for a CAPTCHA to clear (manual solve / auto-clear)
+  // before giving up on the session. Default: 4 minutes.
+  captchaWaitMinutes: parseFloat(process.env.CAPTCHA_WAIT_MINUTES) || 4,
+
   // ── Diagnostics ────────────────────────────────────────────
   showProxyIp: process.env.SHOW_PROXY_IP === 'true',
 };

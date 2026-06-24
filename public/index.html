@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Ad Click Bot · Control Panel</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo">🤖</span>
+      <div>
+        <h1>Keyword Ad Click Bot</h1>
+        <span class="subtitle">Local control panel</span>
+      </div>
+    </div>
+    <div class="status-pill" id="statusPill">
+      <span class="dot" id="statusDot"></span>
+      <span id="statusText">connecting…</span>
+      <span class="uptime" id="uptime"></span>
+    </div>
+  </header>
+
+  <nav class="tabs">
+    <button class="tab active" data-tab="control">Control &amp; Logs</button>
+    <button class="tab" data-tab="config">Config</button>
+    <button class="tab" data-tab="accounts">Accounts</button>
+    <button class="tab" data-tab="raw">Raw .env</button>
+  </nav>
+
+  <main>
+    <!-- ── CONTROL & LOGS ─────────────────────────────── -->
+    <section class="panel active" id="tab-control">
+      <div class="control-row">
+        <button class="btn btn-start" id="btnStart">▶ Start Bot</button>
+        <button class="btn btn-stop" id="btnStop" disabled>⏹ Stop Bot</button>
+        <div class="spacer"></div>
+        <label class="check"><input type="checkbox" id="autoscroll" checked /> Auto-scroll</label>
+        <button class="btn btn-ghost" id="btnClear">Clear</button>
+      </div>
+
+      <div class="stats">
+        <div class="stat"><span class="stat-val" id="sSessions">0</span><span class="stat-label">Sessions</span></div>
+        <div class="stat"><span class="stat-val ok" id="sSuccess">0</span><span class="stat-label">Successful Clicks</span></div>
+        <div class="stat"><span class="stat-val bad" id="sFailed">0</span><span class="stat-label">Failed</span></div>
+        <div class="stat"><span class="stat-val accent" id="sTargets">0</span><span class="stat-label">Target Clicks</span></div>
+      </div>
+
+      <div class="console" id="console"></div>
+    </section>
+
+    <!-- ── CONFIG ─────────────────────────────────────── -->
+    <section class="panel" id="tab-config">
+      <div class="panel-head">
+        <h2>Bot Configuration</h2>
+        <div>
+          <button class="btn btn-ghost" id="cfgReload">Reload</button>
+          <button class="btn btn-save" id="cfgSave">Save Config</button>
+        </div>
+      </div>
+      <p class="hint">Changes apply the next time you start the bot. Saving keeps a <code>.env.bak</code> backup.</p>
+      <div id="configForm"></div>
+    </section>
+
+    <!-- ── ACCOUNTS ───────────────────────────────────── -->
+    <section class="panel" id="tab-accounts">
+      <div class="panel-head">
+        <h2>Accounts <span class="count" id="acctCount"></span></h2>
+        <div>
+          <button class="btn btn-ghost" id="acctReload">Reload</button>
+          <button class="btn btn-add" id="acctAdd">+ Add Account</button>
+          <button class="btn btn-save" id="acctSave">Save Accounts</button>
+        </div>
+      </div>
+      <p class="hint">Stored in <code>accounts.json</code>. A <code>.bak</code> is kept on save.</p>
+      <div class="table-wrap">
+        <table id="acctTable">
+          <thead>
+            <tr>
+              <th>Email</th><th>Password</th><th>Name</th>
+              <th>Gender</th><th>Age</th><th>DOB</th><th></th>
+            </tr>
+          </thead>
+          <tbody id="acctBody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ── RAW ENV ────────────────────────────────────── -->
+    <section class="panel" id="tab-raw">
+      <div class="panel-head">
+        <h2>Raw .env</h2>
+        <div>
+          <button class="btn btn-ghost" id="rawReload">Reload</button>
+          <button class="btn btn-save" id="rawSave">Save Raw</button>
+        </div>
+      </div>
+      <p class="hint">Full file editor — for anything the form doesn't cover. Be careful.</p>
+      <textarea id="rawEnv" class="raw-editor" spellcheck="false"></textarea>
+    </section>
+  </main>
+
+  <div class="toast" id="toast"></div>
+  <script src="app.js"></script>
+</body>
+</html>

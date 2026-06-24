@@ -5,7 +5,9 @@
   "main": "index.js",
   "type": "module",
   "scripts": {
-    "start": "node index.js",
+    "start": "node dashboard.js",
+    "dashboard": "node dashboard.js",
+    "bot": "node index.js",
     "start:headed": "set HEADLESS=false && node index.js",
     "test-stealth": "node test-stealth.js"
   },
@@ -13,6 +15,7 @@
     "chalk": "^5.3.0",
     "cloakbrowser": "^0.3.19",
     "dotenv": "^16.4.5",
+    "express": "^4.22.2",
     "playwright-core": "latest",
     "proxy-chain": "^2.7.1"
   }

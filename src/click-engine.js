@@ -256,8 +256,10 @@ async function detectAndHandleRecaptcha(page) {
   console.log(chalk.red.bold(`  ╚══════════════════════════════════════════════════════╝\n`));
 
   // Poll every 5 seconds until reCAPTCHA is gone
+  const waitMinutes = config.captchaWaitMinutes || 4;
   let attempts = 0;
-  const maxAttempts = 180; // 15 minutes max
+  const maxAttempts = Math.max(1, Math.round((waitMinutes * 60) / 5)); // configurable wait window
+  console.log(chalk.dim(`  → Will wait up to ${waitMinutes} min for the CAPTCHA to clear\n`));
 
   while (attempts < maxAttempts) {
     await sleep(5000);
@@ -298,7 +300,7 @@ async function detectAndHandleRecaptcha(page) {
     }
   }
 
-  console.log(chalk.red(`  ✗ Timed out waiting for CAPTCHA solve (15 min)`));
+  console.log(chalk.red(`  ✗ Timed out waiting for CAPTCHA solve (${waitMinutes} min)`));
   return false;
 }
 
