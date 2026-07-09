@@ -206,6 +206,9 @@ export async function launchBrowser(retryCount = 0, specificAccount = null, perf
       height: viewport.height + randomInt(-20, 20),
     },
     args: [
+      // Required to launch Chromium inside Termux/proot (no real sandbox available)
+      '--no-sandbox',
+      '--disable-setuid-sandbox',
       `--fingerprint=${fingerprintSeed}`,
       `--fingerprint-platform=windows`, // PC only
       `--fingerprint-gpu-vendor=${gpu.vendor}`,
