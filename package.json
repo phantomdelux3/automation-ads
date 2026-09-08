@@ -9,14 +9,18 @@
     "dashboard": "node dashboard.js",
     "bot": "node index.js",
     "start:headed": "set HEADLESS=false && node index.js",
-    "test-stealth": "node test-stealth.js"
+    "test-stealth": "node test-stealth.js",
+    "profiles:export": "node scripts/export-profiles.js",
+    "profiles:import": "node scripts/import-profiles.js",
+    "profiles:status": "node scripts/profiles-status.js",
+    "profiles:pack": "node scripts/pack-transfer.js"
   },
   "dependencies": {
     "chalk": "^5.3.0",
-    "cloakbrowser": "^0.3.19",
+    "cloakbrowser": "0.3.19",
     "dotenv": "^16.4.5",
     "express": "^4.22.2",
-    "playwright-core": "latest",
+    "playwright-core": "1.58.2",
     "proxy-chain": "^2.7.1"
   }
 }

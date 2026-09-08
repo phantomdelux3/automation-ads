@@ -26,6 +26,7 @@
     <button class="tab active" data-tab="control">Control &amp; Logs</button>
     <button class="tab" data-tab="config">Config</button>
     <button class="tab" data-tab="accounts">Accounts</button>
+    <button class="tab" data-tab="transfer">Transfer</button>
     <button class="tab" data-tab="raw">Raw .env</button>
   </nav>
 
@@ -83,6 +84,66 @@
             </tr>
           </thead>
           <tbody id="acctBody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ── TRANSFER ───────────────────────────────────── -->
+    <section class="panel" id="tab-transfer">
+      <div class="panel-head">
+        <h2>Move profiles to another laptop</h2>
+        <div>
+          <button class="btn btn-ghost" id="xferReload">Reload</button>
+        </div>
+      </div>
+      <p class="hint">
+        Chrome encrypts cookies with a key tied to <em>this</em> Windows account and machine,
+        so simply copying <code>chrome-profiles/</code> arrives logged out — which is what
+        triggers the CAPTCHAs. Export reads the cookies out while they are still readable;
+        Import writes them back on the new machine.
+      </p>
+
+      <div id="xferBanner"></div>
+
+      <div class="cfg-group">
+        <h3>Step 1 &middot; On this laptop (source)</h3>
+        <div class="xfer-actions">
+          <button class="btn btn-save" id="btnExport">Export Profiles</button>
+          <label class="check"><input type="checkbox" id="xferIncludeBrowser" /> Also bundle Chromium (~540&nbsp;MB, exact browser match)</label>
+        </div>
+        <div class="xfer-actions">
+          <button class="btn btn-add" id="btnPack">Pack Transfer Zip</button>
+          <span class="desc">Zips the whole folder correctly — skips ~7&nbsp;GB of rebuildable cache, keeps <code>.env</code>, <code>chrome-profiles/</code> and <code>node_modules/</code>. Written next to the bot folder.</span>
+        </div>
+      </div>
+
+      <div class="cfg-group">
+        <h3>Step 2 &middot; On the other laptop (target)</h3>
+        <div class="xfer-actions">
+          <button class="btn btn-start" id="btnImport">Import Profiles</button>
+          <label class="check"><input type="checkbox" id="xferVerify" checked /> Verify each profile after import</label>
+        </div>
+        <p class="hint">
+          Unzip, run <code>npm start</code>, then click Import here. It strips the old machine's
+          encryption key, clears stale locks and caches, re-injects every cookie, and re-opens
+          each profile to confirm the cookies stuck.
+        </p>
+        <div class="xfer-actions">
+          <button class="btn btn-stop" id="btnXferStop" disabled>⏹ Stop Task</button>
+          <span class="desc" id="xferTaskState">No task running.</span>
+        </div>
+      </div>
+
+      <div class="panel-head"><h2>Profiles <span class="count" id="xferCount"></span></h2></div>
+      <div class="table-wrap">
+        <table id="xferTable">
+          <thead>
+            <tr>
+              <th>Profile</th><th>On disk</th><th>Exported</th>
+              <th>Google login</th><th>State</th><th>Identity</th>
+            </tr>
+          </thead>
+          <tbody id="xferBody"></tbody>
         </table>
       </div>
     </section>

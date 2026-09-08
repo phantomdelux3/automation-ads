@@ -193,3 +193,34 @@ tbody input:focus { background: var(--bg); border-color: var(--accent); outline:
   .stats { grid-template-columns: repeat(2, 1fr); }
   .cfg-grid { grid-template-columns: 1fr; }
 }
+
+/* Transfer tab */
+.xfer-actions {
+  display: flex; align-items: center; gap: 14px;
+  flex-wrap: wrap; margin: 10px 0;
+}
+.xfer-actions .desc {
+  color: var(--muted); font-size: 11.5px; max-width: 620px; line-height: 1.5;
+}
+.xfer-banner {
+  border: 1px solid var(--border); border-left-width: 3px;
+  border-radius: 8px; padding: 11px 14px; margin: 0 0 16px;
+  font-size: 12.5px; line-height: 1.6; background: var(--bg2);
+}
+.xfer-banner.ok   { border-left-color: var(--green); }
+.xfer-banner.warn { border-left-color: var(--yellow); }
+.xfer-banner.bad  { border-left-color: var(--red); }
+.xfer-banner b { color: var(--text); }
+.xfer-banner code { color: var(--accent); }
+.badge {
+  display: inline-block; padding: 2px 7px; border-radius: 999px;
+  font-size: 10.5px; font-weight: 600; letter-spacing: .2px;
+  border: 1px solid var(--border); color: var(--muted); white-space: nowrap;
+}
+.badge.ok   { color: var(--green);  border-color: #234b2c; background: #12261a; }
+.badge.bad  { color: var(--red);    border-color: #5a2222; background: #2a1414; }
+.badge.warn { color: var(--yellow); border-color: #574310; background: #2a2110; }
+.badge.info { color: var(--cyan);   border-color: #1c4a4f; background: #10262a; }
+#xferTable td { color: var(--muted); }
+#xferTable td.name { color: var(--text); font-family: ui-monospace, Consolas, monospace; }
+#xferTable td.ident { font-family: ui-monospace, Consolas, monospace; font-size: 11px; }

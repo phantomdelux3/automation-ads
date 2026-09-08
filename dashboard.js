@@ -14,6 +14,7 @@ import { spawn } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { profileStatus } from './scripts/lib/status.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = __dirname;
@@ -82,6 +83,7 @@ app.get('/api/logs/stream', (req, res) => {
 
   // Send current status + backlog to the new client
   res.write(`event: status\ndata: ${JSON.stringify(statusObj())}\n\n`);
+  res.write(`event: task\ndata: ${JSON.stringify(taskObj())}\n\n`);
   for (const e of logBuffer) {
     res.write(`event: log\ndata: ${JSON.stringify(e)}\n\n`);
   }
@@ -104,6 +106,11 @@ app.get('/api/bot/status', (req, res) => res.json(statusObj()));
 
 app.post('/api/bot/start', (req, res) => {
   if (botProc) return res.status(409).json({ error: 'Bot is already running' });
+  if (taskProc) {
+    return res.status(409).json({
+      error: `Wait for ${TASKS[taskName].label} to finish — it has the Chrome profiles open.`,
+    });
+  }
   try {
     botProc = spawn(process.execPath, ['index.js'], {
       cwd: ROOT,
@@ -139,6 +146,111 @@ app.post('/api/bot/stop', (req, res) => {
   pushLog('system', `⏹ Stop requested — killing process tree (pid ${pid})…`);
   if (process.platform === 'win32') {
     // Kill the whole tree so Chromium children die too
+    spawn('taskkill', ['/pid', String(pid), '/T', '/F']);
+  } else {
+    try {
+      process.kill(pid, 'SIGTERM');
+    } catch {
+      /* already gone */
+    }
+  }
+  res.json({ ok: true });
+});
+
+// ── Profile transfer (export / import / pack) ───────────────────────
+//
+// These run as child processes so their output lands in the same live log
+// console as the bot, and so a long export can't block the dashboard.
+
+let taskProc = null;
+let taskName = null;
+let taskStartedAt = null;
+
+const TASKS = {
+  export: { script: 'scripts/export-profiles.js', label: 'Export profiles' },
+  import: { script: 'scripts/import-profiles.js', label: 'Import profiles' },
+  pack: { script: 'scripts/pack-transfer.js', label: 'Pack for transfer' },
+};
+
+/** Only flags this dashboard offers - never pass user strings through to argv. */
+const TASK_FLAGS = {
+  export: { includeBrowser: '--include-browser' },
+  import: { noVerify: '--no-verify' },
+  pack: {},
+};
+
+function taskObj() {
+  return {
+    running: !!taskProc,
+    task: taskName,
+    label: taskName ? TASKS[taskName].label : null,
+    startedAt: taskStartedAt,
+  };
+}
+
+app.get('/api/transfer/status', (req, res) => {
+  try {
+    res.json({ ...profileStatus({ withSizes: req.query.sizes === '1' }), task: taskObj() });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/transfer/run', (req, res) => {
+  const { task, options } = req.body || {};
+
+  if (!TASKS[task]) return res.status(400).json({ error: `Unknown task: ${task}` });
+  if (taskProc) return res.status(409).json({ error: `${TASKS[taskName].label} is already running` });
+  if (botProc) {
+    return res.status(409).json({
+      error: 'Stop the bot first — these tasks open the same Chrome profiles.',
+    });
+  }
+
+  const argv = [TASKS[task].script];
+  for (const [key, flag] of Object.entries(TASK_FLAGS[task])) {
+    if (options && options[key]) argv.push(flag);
+  }
+
+  try {
+    taskProc = spawn(process.execPath, argv, {
+      cwd: ROOT,
+      env: { ...process.env, FORCE_COLOR: '0', NO_COLOR: '1' },
+    });
+  } catch (e) {
+    taskProc = null;
+    return res.status(500).json({ error: e.message });
+  }
+
+  taskName = task;
+  taskStartedAt = Date.now();
+  pushLog('system', `▶ ${TASKS[task].label} started (pid ${taskProc.pid})`);
+
+  taskProc.stdout.on('data', (d) => pushLog('stdout', d.toString()));
+  taskProc.stderr.on('data', (d) => pushLog('stderr', d.toString()));
+  taskProc.on('error', (err) => pushLog('stderr', `Spawn error: ${err.message}`));
+  taskProc.on('exit', (code) => {
+    pushLog(
+      'system',
+      code === 0
+        ? `■ ${TASKS[task].label} finished successfully`
+        : `■ ${TASKS[task].label} FAILED (exit code ${code})`
+    );
+    taskProc = null;
+    taskName = null;
+    taskStartedAt = null;
+    broadcast('task', { ...taskObj(), lastExit: code, lastTask: task });
+  });
+
+  broadcast('task', taskObj());
+  res.json(taskObj());
+});
+
+app.post('/api/transfer/stop', (req, res) => {
+  if (!taskProc) return res.status(409).json({ error: 'No transfer task is running' });
+  const pid = taskProc.pid;
+  pushLog('system', `⏹ Stopping ${TASKS[taskName].label} (pid ${pid})…`);
+  if (process.platform === 'win32') {
     spawn('taskkill', ['/pid', String(pid), '/T', '/F']);
   } else {
     try {

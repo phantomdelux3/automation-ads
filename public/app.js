@@ -111,6 +111,12 @@ function connectStream() {
   const es = new EventSource('/api/logs/stream');
   es.addEventListener('log', (ev) => appendLog(JSON.parse(ev.data)));
   es.addEventListener('status', (ev) => setStatus(JSON.parse(ev.data)));
+  es.addEventListener('task', (ev) => {
+    const t = JSON.parse(ev.data);
+    setTaskState(t);
+    // A finished export/import changes what the Transfer tab shows.
+    if (!t.running) loadTransfer();
+  });
   es.onerror = () => { /* EventSource auto-retries */ };
 }
 connectStream();
@@ -174,6 +180,7 @@ const CONFIG_SCHEMA = [
       { key: 'PROXY_LIST', type: 'list', desc: 'Proxy hosts host:port (one per line)' },
       { key: 'PROXY_USER', type: 'text', desc: 'Proxy username' },
       { key: 'PROXY_PASS', type: 'text', desc: 'Proxy password' },
+      { key: 'PROXY_COUNTRY', type: 'text', desc: 'Exit country for profile timezone/locale — blank auto-detects from the proxy hostname (us, gb, ca, au, de, fr, nl, in, sg, jp, ae)' },
       { key: 'SHOW_PROXY_IP', type: 'bool', desc: 'Print evaluated proxy IP each session' },
     ],
   },
@@ -356,3 +363,146 @@ $('#acctSave').addEventListener('click', async () => {
 // ── Initial load ────────────────────────────────────────────────────
 loadConfig();
 loadAccounts();
+
+// ════════════════════════════════════════════════════════════════════
+//  TRANSFER  (export / pack / import profiles)
+// ════════════════════════════════════════════════════════════════════
+let xferState = null;
+
+function badge(text, kind) {
+  return `<span class="badge ${kind}">${text}</span>`;
+}
+
+function renderBanner(s) {
+  const el = $('#xferBanner');
+  const parts = [];
+
+  if (s.countryMismatch) {
+    parts.push(
+      `<div class="xfer-banner bad"><b>Proxy country mismatch.</b> The bundle was built for
+       <code>${s.manifest.proxyCountry}</code> but this machine's <code>.env</code> resolves to
+       <code>${s.proxyCountry}</code>. Importing now would change every profile's timezone and
+       locale. Fix <code>PROXY_LIST</code> (or set <code>PROXY_COUNTRY</code>) first.</div>`
+    );
+  }
+
+  if (s.counts.needsImport > 0) {
+    parts.push(
+      `<div class="xfer-banner warn"><b>${s.counts.needsImport} profile(s) were copied from another
+       machine and have not been imported.</b> Their cookies are still encrypted with the old
+       machine's key, so they will hit CAPTCHAs until you click <b>Import Profiles</b>.</div>`
+    );
+  } else if (s.hasBundle && s.manifest) {
+    const src = s.manifest.source || {};
+    parts.push(
+      `<div class="xfer-banner ok"><b>Bundle ready.</b> ${s.manifest.profileCount} profile(s)
+       exported ${new Date(s.manifest.exportedAt).toLocaleString()} on
+       <code>${src.hostname || '?'}</code> (Chromium ${src.chromium || '?'}).
+       ${s.manifest.bundledBrowser ? 'Chromium is bundled for an exact match.' : ''}</div>`
+    );
+  } else {
+    parts.push(
+      `<div class="xfer-banner info"><b>No bundle yet.</b> Click <b>Export Profiles</b> to read the
+       cookies out of all ${s.counts.onDisk} profile(s), then <b>Pack Transfer Zip</b>.</div>`
+    );
+  }
+
+  el.innerHTML = parts.join('');
+}
+
+function renderXferTable(s) {
+  const body = $('#xferBody');
+  body.innerHTML = '';
+
+  for (const p of s.profiles) {
+    const tr = document.createElement('tr');
+
+    const state = [];
+    if (p.needsImport) state.push(badge('NEEDS IMPORT', 'bad'));
+    else if (!p.hasProfileDir && p.bundled) state.push(badge('cookies only', 'warn'));
+    else if (p.bundled && p.hasProfileDir) state.push(badge('ready', 'ok'));
+    if (!p.inAccounts) state.push(badge('not in accounts.json', 'warn'));
+
+    const id = p.identity;
+    tr.innerHTML = `
+      <td class="name">${p.name}</td>
+      <td>${p.hasProfileDir ? badge('yes', 'ok') : badge('no', 'bad')}</td>
+      <td>${p.bundled ? badge(p.bundledCookies + ' cookies', 'info') : badge('not exported', 'warn')}</td>
+      <td>${
+        p.bundled
+          ? p.bundledLoggedIn
+            ? badge('signed in', 'ok')
+            : badge('NOT signed in', 'bad')
+          : '<span class="badge">—</span>'
+      }</td>
+      <td>${state.join(' ') || '<span class="badge">—</span>'}</td>
+      <td class="ident">${id.seed} · ${id.timezone} · ${id.locale}<br/>${id.screen} · ${id.gpu}</td>`;
+    body.appendChild(tr);
+  }
+
+  $('#xferCount').textContent = `(${s.profiles.length})`;
+}
+
+function setTaskState(t) {
+  const running = !!(t && t.running);
+  $('#btnXferStop').disabled = !running;
+  ['#btnExport', '#btnImport', '#btnPack'].forEach((sel) => {
+    $(sel).disabled = running;
+  });
+  $('#xferTaskState').textContent = running
+    ? `${t.label} running…  (watch the Control & Logs tab)`
+    : 'No task running.';
+}
+
+async function loadTransfer() {
+  try {
+    const s = await api('GET', '/api/transfer/status');
+    xferState = s;
+    renderBanner(s);
+    renderXferTable(s);
+    setTaskState(s.task);
+  } catch (e) {
+    toast(e.message, 'err');
+  }
+}
+
+async function runTask(task, options, note) {
+  try {
+    await api('POST', '/api/transfer/run', { task, options });
+    toast(note, 'ok');
+    // Jump to the logs — these tasks are long and all their output goes there.
+    $$('.tab').forEach((t) => t.classList.remove('active'));
+    $$('.panel').forEach((p) => p.classList.remove('active'));
+    document.querySelector('.tab[data-tab="control"]').classList.add('active');
+    $('#tab-control').classList.add('active');
+  } catch (e) {
+    toast(e.message, 'err');
+  }
+}
+
+$('#xferReload').addEventListener('click', loadTransfer);
+
+$('#btnExport').addEventListener('click', () =>
+  runTask('export', { includeBrowser: $('#xferIncludeBrowser').checked }, 'Export started')
+);
+
+$('#btnPack').addEventListener('click', () => runTask('pack', {}, 'Packing zip…'));
+
+$('#btnImport').addEventListener('click', () => {
+  if (xferState && xferState.countryMismatch) {
+    toast('Fix the proxy country mismatch first', 'err');
+    return;
+  }
+  runTask('import', { noVerify: !$('#xferVerify').checked }, 'Import started');
+});
+
+$('#btnXferStop').addEventListener('click', async () => {
+  try {
+    await api('POST', '/api/transfer/stop');
+    toast('Stopping task…', 'ok');
+  } catch (e) {
+    toast(e.message, 'err');
+  }
+});
+
+loadTransfer();

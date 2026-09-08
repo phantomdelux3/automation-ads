@@ -57,16 +57,46 @@ npm run test-stealth
 ```
 bot-undetectable-click/
 ├── index.js              # CLI entry point
+├── dashboard.js          # Web control panel (npm start)
 ├── config.js             # Configuration loader
 ├── test-stealth.js       # Bot detection test script
+├── TRANSFER.md           # Moving profiles to another laptop
 ├── .env                  # Your configuration (git-ignored)
 ├── .env.example          # Example configuration
 ├── package.json
-└── src/
-    ├── browser.js        # Stealth browser launcher
-    ├── human-behavior.js # Human behavior simulation
-    └── click-engine.js   # Click session orchestration
+├── src/
+│   ├── browser.js          # Stealth browser launcher
+│   ├── profile-identity.js # Deterministic per-profile fingerprint
+│   ├── human-behavior.js   # Human behavior simulation
+│   └── click-engine.js     # Click session orchestration
+└── scripts/
+    ├── export-profiles.js  # Read cookies out for transfer
+    ├── import-profiles.js  # Rebuild profiles on a new machine
+    ├── pack-transfer.js    # Build a verified transfer zip
+    └── profiles-status.js  # What's on disk vs. exported
 ```
+
+---
+
+## 💻 Moving to Another Laptop
+
+Copying `chrome-profiles/` by itself does **not** work: Chrome encrypts cookies
+with a key bound to the Windows user + machine, so a copied profile arrives
+logged out and gets CAPTCHA'd on every search.
+
+Use the Transfer tab in the dashboard, or:
+
+```bash
+# On the source machine
+npm run profiles:export     # read cookies out while they are still decryptable
+npm run profiles:pack       # verified zip, skips ~7 GB of rebuildable cache
+
+# On the target machine, after unzipping
+npm run profiles:import     # re-inject cookies, then verify they persisted
+npm run profiles:status     # check what still needs importing
+```
+
+See [TRANSFER.md](TRANSFER.md) for the full explanation.
 
 ---
 
