@@ -142,3 +142,34 @@ normal rhythm before pushing volume.
 If a profile still gets challenged, check `npm run profiles:status`: a profile
 showing `not exported` or `NOT signed in` was never carrying a session to begin
 with and needs a fresh login plus warmup (`COOKIE_WARMUP=true`).
+
+## Signed out on arrival — the normal case
+
+Even a perfect import can land you here: the browser is trusted (no CAPTCHA)
+but Google shows nobody signed in. That is the transfer working as designed —
+everything that makes the profile *look* like a returning machine survives the
+move; only the session does not.
+
+The fix is on the dashboard's **Accounts** tab, not here:
+
+```bash
+npm run accounts:check      # which profiles actually still have a session
+npm run accounts:relogin    # sign the signed-out ones back in
+```
+
+Re-login reuses the profile exactly as it is — same folder, same fingerprint,
+same proxy endpoint. Nothing is rebuilt, so nothing that earned the profile its
+trust is lost.
+
+Do the import **before** the re-login. Importing tears down and rebuilds the
+cookie store, which would throw away a session you had just created. The
+Accounts tab refuses to re-login while any profile is still flagged
+`NEEDS IMPORT`.
+
+## profile-map.json travels too
+
+Once an account has been given a profile from the cookie pool, the link between
+the two lives in `profile-map.json` at the project root. Without that file the
+other laptop would resolve the account back to an email-named folder that does
+not exist and build it from scratch, with a different fingerprint. `npm run
+profiles:pack` includes it and verifies it made it into the zip.

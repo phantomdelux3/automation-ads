@@ -86,6 +86,28 @@ function tarExe() {
   return fs.existsSync(sys) ? sys : 'tar';
 }
 
+/**
+ * profile-map.json records which account owns which profile directory. It only
+ * exists once a pool profile has been handed to an account - but from that
+ * moment it is load-bearing: without it the other laptop would resolve that
+ * account back to an email-named folder that does not exist, and rebuild it
+ * from scratch with a different fingerprint.
+ */
+function checkProfileMap() {
+  const p = path.join(ROOT, 'profile-map.json');
+  if (!fs.existsSync(p)) {
+    info('profile-map.json - not present (no pooled profiles to map)');
+    return false;
+  }
+  try {
+    const n = Object.keys(JSON.parse(fs.readFileSync(p, 'utf8')).assignments || {}).length;
+    ok(`profile-map.json - present (${n} account(s) mapped to a pool profile)`);
+  } catch (e) {
+    warn(`profile-map.json - present but unreadable: ${e.message}`);
+  }
+  return true;
+}
+
 function preflight() {
   let blocking = 0;
 
@@ -102,6 +124,8 @@ function preflight() {
       blocking++;
     }
   }
+
+  checkProfileMap();
 
   const onDisk = listProfileDirs();
   const bundled = listBundledProfiles();
@@ -210,6 +234,9 @@ function main() {
   const need = [
     ['./.env', '.env'],
     ['./accounts.json', 'accounts.json'],
+    ...(fs.existsSync(path.join(ROOT, 'profile-map.json'))
+      ? [['./profile-map.json', 'profile-map.json']]
+      : []),
     ['./profile-bundle/manifest.json', 'the exported cookies'],
     ['./node_modules/', 'node_modules'],
     ['./chrome-profiles/', 'chrome-profiles'],

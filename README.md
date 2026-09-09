@@ -67,13 +67,21 @@ bot-undetectable-click/
 ├── src/
 │   ├── browser.js          # Stealth browser launcher
 │   ├── profile-identity.js # Deterministic per-profile fingerprint
+│   ├── profile-map.js      # Which profile folder belongs to which account
+│   ├── google-login.js     # Sign-in + "is this profile signed in?"
+│   ├── warmup.js           # Cookie warmup for new profiles
+│   ├── captcha-guard.js    # Shared reCAPTCHA auto-solve / manual wait
 │   ├── human-behavior.js   # Human behavior simulation
 │   └── click-engine.js     # Click session orchestration
 └── scripts/
-    ├── export-profiles.js  # Read cookies out for transfer
-    ├── import-profiles.js  # Rebuild profiles on a new machine
-    ├── pack-transfer.js    # Build a verified transfer zip
-    └── profiles-status.js  # What's on disk vs. exported
+    ├── export-profiles.js      # Read cookies out for transfer
+    ├── import-profiles.js      # Rebuild profiles on a new machine
+    ├── pack-transfer.js        # Build a verified transfer zip
+    ├── profiles-status.js      # What's on disk vs. exported
+    ├── relogin.js              # Check / re-login every account
+    ├── build-cookies.js        # Build warm, unclaimed profiles (cookie pool)
+    ├── rewarmup.js             # Re-warm the cookies of existing profiles
+    └── provision-accounts.js   # Give new accounts a warm profile + login
 ```
 
 ---
@@ -97,6 +105,87 @@ npm run profiles:status     # check what still needs importing
 ```
 
 See [TRANSFER.md](TRANSFER.md) for the full explanation.
+
+---
+
+## 👤 Accounts tab — keeping profiles signed in
+
+Everything below is a button on the dashboard's **Accounts** tab. All of it is
+aimed at one thing: never letting Google see a browser worth challenging.
+
+### 1. Check / re-login
+
+After a transfer the profiles look trusted (no CAPTCHA) but are **signed out** —
+Chrome could not decrypt the login cookies that came with them. This signs the
+same account back into the same profile, over the same proxy and fingerprint,
+changing nothing else.
+
+```bash
+npm run accounts:check      # open each profile, ask Google if it is signed in
+npm run accounts:relogin    # sign the signed-out ones back in
+```
+
+Keep **Show the browser window** ticked for sign-ins: if Google asks for 2FA or
+a CAPTCHA you have to finish it by hand, and the script waits
+`CAPTCHA_WAIT_MINUTES` for you.
+
+### 2. Cookie pool — build warm profiles in advance
+
+```bash
+npm run cookies:build -- --count 5           # 5 warm, unclaimed profiles
+npm run cookies:build -- --count 5 --rounds 2
+```
+
+Builds profiles with **nobody signed in** and browses normally in each one
+(Google, YouTube, News, real sites, searches) until it holds the cookies a
+genuine browser accumulates. They wait in the pool until an account needs one.
+
+Building trust *before* a login exists is the whole point: a brand new profile
+whose first act is signing into Google is exactly what gets challenged.
+
+### 3. Re-warm cookies
+
+```bash
+npm run cookies:rewarm                      # every profile on disk
+npm run cookies:rewarm -- --accounts-only
+npm run cookies:rewarm -- --only a@b.com
+```
+
+Cookies decay. `NID` and `AEC` expire, a profile sits unused for weeks, or an
+import rebuilt the cookie store and only the login came back. The profile still
+looks long-lived on disk — it just stopped carrying the cookies that tell Google
+it has been seen before, and the next search from it is the one that gets
+challenged.
+
+This browses every profile and **keeps going until the jar actually grades
+healthy**, then re-opens each profile offline to confirm the cookies survived the
+browser closing. Signed-in profiles stay signed in — warming only browses.
+
+Warmth is graded on what Google actually hands out:
+
+| Cookie | Why it matters |
+|---|---|
+| `NID` | The floor. Without it Google has no memory of this browser. |
+| `AEC` | Google's own anti-abuse token — only given to a browser that has *used* Search and behaved. |
+| YouTube `VISITOR_INFO1_LIVE` / `YSC` | Near-universal on a real Chrome profile. |
+| `SOCS` / `CONSENT` | Bonus only — the consent wall is region-dependent and US exits often never see one. |
+
+Verdicts: **strong** (NID + AEC + another signal) · **ok** (NID + one signal) ·
+**thin** (recognised, nothing behind it) · **cold** (no NID — will be challenged).
+
+### 4. Provision new accounts
+
+```bash
+npm run accounts:provision
+```
+
+Every account with no profile yet gets one — from the warm pool first, and only
+when the pool is empty does it create a profile, warm it up, and *then* sign in.
+
+A claimed pool profile keeps its `pool.<random>` folder name forever. The name
+seeds the fingerprint, so renaming it to the account's email would change the
+hardware Google sees and throw away the warmup. The email → folder link lives in
+`profile-map.json`, which must travel with the transfer zip (the packer checks).
 
 ---
 

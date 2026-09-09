@@ -152,6 +152,97 @@ export const GOOGLE_AUTH_COOKIES = [
   'NID', 'SOCS', 'AEC', '1P_JAR',
 ];
 
+/**
+ * The cookies that make Google treat a browser as a known one.
+ *
+ * These are what a warmup is actually trying to produce, and what their
+ * absence looks like from Google's side is "a browser I have never seen",
+ * which is the request that gets a reCAPTCHA:
+ *
+ *   NID    - the main preferences/personalisation cookie for Search. A browser
+ *            hitting google.com without it has no history with Google at all.
+ *   SOCS   - the record that the consent dialog was answered. Missing it means
+ *            the consent wall reappears and the session never looks settled.
+ *   AEC    - Google's own anti-abuse token, handed out to browsers that have
+ *            behaved like a person. The single most relevant one here.
+ *   __Secure-ENID  - search preferences, another sign of a returning browser.
+ *   VISITOR_INFO1_LIVE / YSC - the YouTube pair; a real Chrome profile almost
+ *            always has them, and they cost nothing to earn.
+ */
+export const GOOGLE_TRUST_COOKIES = {
+  nid: ['NID'],
+  consent: ['SOCS', 'CONSENT'],
+  aec: ['AEC'],
+  enid: ['__Secure-ENID'],
+  youtube: ['VISITOR_INFO1_LIVE', 'YSC'],
+};
+
+/**
+ * Grade a cookie jar on how much trust it carries.
+ *
+ * The weighting comes from watching real profiles warm up, not from theory:
+ *
+ *   NID is the floor. Without it Google has no memory of the browser at all,
+ *   and nothing else compensates.
+ *
+ *   AEC is the strongest positive signal - it is Google's own anti-abuse
+ *   token, and it is only handed to a browser that has actually used Search
+ *   and behaved acceptably while doing it.
+ *
+ *   SOCS/CONSENT is NOT required. The consent wall is region-dependent: an EU
+ *   exit gets one and answering it mints SOCS, a US exit is often never shown
+ *   one and never gets the cookie. An earlier version of this rubric demanded
+ *   it, which made "healthy" unreachable on US proxies and sent the re-warm
+ *   loop through every round it was allowed for no gain. It counts as a bonus
+ *   signal, nothing more.
+ *
+ * verdict is one of:
+ *   strong - NID + AEC + another signal. Google knows this browser.
+ *   ok     - NID plus at least one supporting signal. Fine to search from.
+ *   thin   - recognised, but with nothing behind it.
+ *   cold   - no NID. This profile will be challenged; warm it before use.
+ */
+export function cookieHealth(cookies) {
+  const names = new Set(cookies.map((c) => c.name));
+  const has = (list) => list.some((n) => names.has(n));
+
+  const nid = has(GOOGLE_TRUST_COOKIES.nid);
+  const consent = has(GOOGLE_TRUST_COOKIES.consent);
+  const aec = has(GOOGLE_TRUST_COOKIES.aec);
+  const enid = has(GOOGLE_TRUST_COOKIES.enid);
+  const youtube = has(GOOGLE_TRUST_COOKIES.youtube);
+  const loggedIn = names.has('SID') || names.has('__Secure-1PSID');
+
+  const supporting = [aec, youtube, consent, enid].filter(Boolean).length;
+
+  let verdict = 'cold';
+  if (nid && aec && supporting >= 2) verdict = 'strong';
+  else if (nid && supporting >= 1) verdict = 'ok';
+  else if (nid || supporting >= 1) verdict = 'thin';
+
+  // Only the genuinely useful absences are worth reporting. Consent is listed
+  // last and flagged as optional so a US profile is not chased for it.
+  const missing = [];
+  if (!nid) missing.push('NID');
+  if (!aec) missing.push('AEC');
+  if (!youtube) missing.push('YouTube');
+  if (!consent) missing.push('consent (optional)');
+
+  return {
+    verdict,
+    nid,
+    consent,
+    aec,
+    enid,
+    youtube,
+    loggedIn,
+    supporting,
+    missing,
+    // Enough to search without being treated as a stranger.
+    healthy: verdict === 'strong' || verdict === 'ok',
+  };
+}
+
 export function summarizeCookies(cookies) {
   const domains = new Set(cookies.map((c) => c.domain.replace(/^\./, '')));
   const google = cookies.filter((c) => /(^|\.)google\.[a-z.]+$/.test(c.domain.replace(/^\./, '')));

@@ -15,6 +15,8 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { profileStatus } from './scripts/lib/status.js';
+import { accountsStatus } from './scripts/lib/accounts-status.js';
+import { TASKS, taskArgv } from './scripts/lib/task-argv.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = __dirname;
@@ -166,19 +168,6 @@ let taskProc = null;
 let taskName = null;
 let taskStartedAt = null;
 
-const TASKS = {
-  export: { script: 'scripts/export-profiles.js', label: 'Export profiles' },
-  import: { script: 'scripts/import-profiles.js', label: 'Import profiles' },
-  pack: { script: 'scripts/pack-transfer.js', label: 'Pack for transfer' },
-};
-
-/** Only flags this dashboard offers - never pass user strings through to argv. */
-const TASK_FLAGS = {
-  export: { includeBrowser: '--include-browser' },
-  import: { noVerify: '--no-verify' },
-  pack: {},
-};
-
 function taskObj() {
   return {
     running: !!taskProc,
@@ -207,10 +196,7 @@ app.post('/api/transfer/run', (req, res) => {
     });
   }
 
-  const argv = [TASKS[task].script];
-  for (const [key, flag] of Object.entries(TASK_FLAGS[task])) {
-    if (options && options[key]) argv.push(flag);
-  }
+  const argv = taskArgv(task, options);
 
   try {
     taskProc = spawn(process.execPath, argv, {
@@ -328,6 +314,18 @@ app.get('/api/accounts', (req, res) => {
     res.json(Array.isArray(arr) ? arr : []);
   } catch (e) {
     res.status(500).json({ error: `Could not read accounts.json: ${e.message}` });
+  }
+});
+
+// Everything the Accounts tab needs to draw its status table: who has a
+// profile, which of them the last check found signed in, and what the cookie
+// pool holds. File reads only - the real answer comes from the Check button,
+// which launches the browsers and records what it saw.
+app.get('/api/accounts/status', (req, res) => {
+  try {
+    res.json({ ...accountsStatus(), task: taskObj() });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
   }
 });
 

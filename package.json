@@ -13,7 +13,12 @@
     "profiles:export": "node scripts/export-profiles.js",
     "profiles:import": "node scripts/import-profiles.js",
     "profiles:status": "node scripts/profiles-status.js",
-    "profiles:pack": "node scripts/pack-transfer.js"
+    "profiles:pack": "node scripts/pack-transfer.js",
+    "accounts:check": "node scripts/relogin.js --check-only",
+    "accounts:relogin": "node scripts/relogin.js",
+    "accounts:provision": "node scripts/provision-accounts.js",
+    "cookies:build": "node scripts/build-cookies.js",
+    "cookies:rewarm": "node scripts/rewarmup.js"
   },
   "dependencies": {
     "chalk": "^5.3.0",

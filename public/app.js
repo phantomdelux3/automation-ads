@@ -114,8 +114,12 @@ function connectStream() {
   es.addEventListener('task', (ev) => {
     const t = JSON.parse(ev.data);
     setTaskState(t);
-    // A finished export/import changes what the Transfer tab shows.
-    if (!t.running) loadTransfer();
+    setAcctTaskState(t);
+    // A finished task changes what both tabs show.
+    if (!t.running) {
+      loadTransfer();
+      loadAccountStatus();
+    }
   });
   es.onerror = () => { /* EventSource auto-retries */ };
 }
@@ -421,7 +425,8 @@ function renderXferTable(s) {
     if (p.needsImport) state.push(badge('NEEDS IMPORT', 'bad'));
     else if (!p.hasProfileDir && p.bundled) state.push(badge('cookies only', 'warn'));
     else if (p.bundled && p.hasProfileDir) state.push(badge('ready', 'ok'));
-    if (!p.inAccounts) state.push(badge('not in accounts.json', 'warn'));
+    if (p.isPool) state.push(badge(p.poolFree ? 'free pool profile' : 'pool profile', 'info'));
+    else if (!p.inAccounts) state.push(badge('not in accounts.json', 'warn'));
 
     const id = p.identity;
     tr.innerHTML = `

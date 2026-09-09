@@ -10,6 +10,7 @@ import {
   proxyIndexFor,
   fingerprintArgs,
 } from './profile-identity.js';
+import { loginToGoogle as signIn } from './google-login.js';
 
 /**
  * Pick a random item from an array
@@ -25,47 +26,32 @@ function randomInt(min, max) {
   return Math.floor(Math.random() * (max - min + 1)) + min;
 }
 
-const sleep = ms => new Promise(r => setTimeout(r, ms));
-
+/**
+ * Sign an account in during launch, once per profile.
+ *
+ * LOGIN_SUCCESS.txt is the "this profile has been through the sign-in flow"
+ * marker; it is what stops every session from re-running the login. It is
+ * written only after the sign-in is actually confirmed, so a failed or
+ * challenged attempt is retried next time instead of being remembered as done.
+ *
+ * The real work lives in google-login.js, shared with the Accounts tab's
+ * re-login button so both take exactly the same path through Google.
+ */
 async function loginToGoogle(page, account, profileDir) {
-  try {
-    const successFile = join(profileDir, 'LOGIN_SUCCESS.txt');
-    if (existsSync(successFile)) {
-      return;
-    }
+  const successFile = join(profileDir, 'LOGIN_SUCCESS.txt');
+  if (existsSync(successFile)) return;
 
-    console.log(`  → Checking Google login for ${account.email}...`);
-    await page.goto('https://accounts.google.com/', { waitUntil: 'domcontentloaded', timeout: 30000 });
-    
-    const emailInput = page.locator('input[type="email"]').first();
-    const isVisible = await emailInput.isVisible({ timeout: 5000 }).catch(() => false);
-    
-    if (!isVisible) {
-      console.log(`  ✓ Already logged in or no email input found.`);
-      writeFileSync(successFile, 'ready', 'utf8');
-      return;
-    }
-    
-    console.log(`  → Logging in to Google account...`);
-    await emailInput.fill(account.email);
-    await sleep(1000);
-    await page.keyboard.press('Enter');
-    
-    const passInput = page.locator('input[type="password"]').first();
-    await passInput.waitFor({ state: 'visible', timeout: 15000 });
-    await sleep(1000);
-    await passInput.fill(account.password);
-    await sleep(1000);
-    await page.keyboard.press('Enter');
-    
-    await page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {});
-    console.log(`  ✓ Google login sequence completed.`);
+  console.log(`  → Checking Google login for ${account.email}...`);
+  const result = await signIn(page, account);
+
+  if (result.ok) {
+    console.log(`  ✓ ${result.message}`);
     writeFileSync(successFile, 'ready', 'utf8');
-    await sleep(3000);
-  } catch (err) {
-    console.log(`  ⚠ Google login failed or skipped: ${err.message}`);
-    throw err;
+    return;
   }
+
+  console.log(`  ⚠ Google login failed for ${account.email}: ${result.message}`);
+  throw new Error(result.message);
 }
 
 /**
@@ -75,7 +61,12 @@ async function loginToGoogle(page, account, profileDir) {
  * - humanPreset: 'careful' (slower, more deliberate)
  * - Fixed fingerprint seed per profile (looks like a returning visitor)
  */
-export async function launchBrowser(retryCount = 0, specificAccount = null, performLogin = false) {
+export async function launchBrowser(
+  retryCount = 0,
+  specificAccount = null,
+  performLogin = false,
+  options = {}
+) {
   if (retryCount > 5) {
     throw new Error('Failed to launch browser after 5 proxy retries.');
   }
@@ -89,6 +80,14 @@ export async function launchBrowser(retryCount = 0, specificAccount = null, perf
 
   if (account) {
     profileDirName = profileDirNameFor(account.email);
+  }
+
+  // An explicit name wins over the account-derived one. The cookie pool builds
+  // profiles before they belong to anybody, so it has a directory name and no
+  // account at all; provisioning then opens that same directory WITH an
+  // account, and the name must stay the pool's - it seeds the fingerprint.
+  if (options.profileDirName) {
+    profileDirName = options.profileDirName;
   }
 
   // Create a persistent profile directory — cookies/localStorage survive across sessions
@@ -112,7 +111,7 @@ export async function launchBrowser(retryCount = 0, specificAccount = null, perf
 
   const launchOptions = {
     userDataDir: profileDir,
-    headless: config.headless,
+    headless: options.headless === undefined ? config.headless : options.headless,
     humanize: true,
     humanPreset: 'careful',
     timezone,
@@ -176,16 +175,31 @@ export async function launchBrowser(retryCount = 0, specificAccount = null, perf
     if (rawProxyUrl) {
       page.rawProxyUrl = rawProxyUrl;
     }
+
+    // Whether a human could actually see this window. The captcha guard uses
+    // it to decide if "wait for a manual solve" is a real option or four
+    // minutes of waiting for somebody who cannot see anything.
+    page.isHeadless = !!launchOptions.headless;
     
     if (account && performLogin) {
       await loginToGoogle(page, account, profileDir);
     }
     
-    return { context, page, viewport, timezone, locale, account, proxyString: anonymizedProxyUrl };
+    return {
+      context,
+      page,
+      viewport,
+      timezone,
+      locale,
+      account,
+      profileDirName,
+      profileDir,
+      proxyString: anonymizedProxyUrl,
+    };
   } catch (err) {
     if (config.proxies && config.proxies.length > 0) {
       console.log(`  ⚠ Browser launch or proxy failed, retrying with another proxy (${retryCount + 1}/5)...`);
-      return await launchBrowser(retryCount + 1, specificAccount, performLogin);
+      return await launchBrowser(retryCount + 1, specificAccount, performLogin, options);
     } else {
       throw err;
     }

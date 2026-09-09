@@ -8,7 +8,8 @@ import fs from 'fs';
 import path from 'path';
 import os from 'os';
 import config from '../../config.js';
-import { profileIdentity, profileDirNameFor } from '../../src/profile-identity.js';
+import { profileIdentity, profileDirNameFor, isPoolProfile } from '../../src/profile-identity.js';
+import { emailForDir } from '../../src/profile-map.js';
 import {
   PROFILES_DIR,
   BUNDLE_DIR,
@@ -76,6 +77,10 @@ export function profileStatus({ withSizes = false } = {}) {
       name,
       email: emailByProfile.get(name) || (rec && rec.email) || null,
       inAccounts: emailByProfile.has(name),
+      // Pool profiles are built before anybody owns them, so "not in
+      // accounts.json" is their normal state, not a problem to flag.
+      isPool: isPoolProfile(name),
+      poolFree: isPoolProfile(name) && !emailForDir(name),
       hasProfileDir: exists,
       // Needs importing when the bundle came from another machine/user and
       // this profile has not been rebuilt here yet.

@@ -86,6 +86,140 @@
           <tbody id="acctBody"></tbody>
         </table>
       </div>
+
+      <!-- ── Profile health / re-login ─────────────────── -->
+      <div id="acctBanner"></div>
+
+      <div class="cfg-group">
+        <h3>1 &middot; Session health &mdash; check &amp; re-login</h3>
+        <p class="hint">
+          After moving profiles to another laptop the browsers still look trusted (no CAPTCHA),
+          but they arrive <b>signed out</b> &mdash; Chrome could not decrypt the login cookies it
+          carried over. This signs the same account back into the same profile, over the same
+          proxy and fingerprint, changing nothing else about it.
+        </p>
+        <div class="xfer-actions">
+          <button class="btn btn-ghost" id="btnCheckLogins">Check logins</button>
+          <span class="desc">Opens every profile, asks Google whether it is still signed in, and fills the table below. No sign-in is attempted.</span>
+        </div>
+        <div class="xfer-actions">
+          <button class="btn btn-start" id="btnRelogin">Re-login signed-out</button>
+          <span class="desc">Signs in only the profiles that need it. Start here after a transfer.</span>
+        </div>
+        <div class="xfer-actions">
+          <button class="btn btn-save" id="btnReloginAll">Re-login ALL</button>
+          <span class="desc">Forces a fresh sign-in on every account, even ones that look fine. Slow &mdash; use when sessions are behaving oddly.</span>
+        </div>
+        <div class="xfer-actions">
+          <label class="check"><input type="checkbox" id="acctHeaded" checked /> Show the browser window</label>
+          <span class="desc">Keep this on for sign-ins: if Google asks for 2FA or a CAPTCHA you have to finish it by hand (the bot waits <code>CAPTCHA_WAIT_MINUTES</code>).</span>
+        </div>
+      </div>
+
+      <!-- ── Cookie pool ───────────────────────────────── -->
+      <div class="cfg-group">
+        <h3>2 &middot; Cookie pool &mdash; build warm profiles in advance</h3>
+        <p class="hint">
+          Builds empty Chrome profiles with <b>nobody signed in</b> and browses normally in each
+          one (Google, YouTube, News, real sites, searches) until it holds the cookies a genuine
+          browser accumulates. They wait in the pool until an account needs one. Building trust
+          <em>before</em> a login exists is what keeps reCAPTCHA away &mdash; a brand new profile
+          whose first act is signing into Google is exactly what gets challenged.
+        </p>
+        <div class="xfer-actions">
+          <label class="check">How many profiles
+            <input type="number" id="poolCount" min="1" max="50" value="5" style="width:70px" />
+          </label>
+          <label class="check">Warmup rounds
+            <input type="number" id="poolRounds" min="1" max="5" value="1" style="width:60px" />
+          </label>
+          <button class="btn btn-add" id="btnBuildCookies">Build cookie profiles</button>
+        </div>
+        <div class="xfer-actions">
+          <span class="desc" id="poolSummary">Pool: —</span>
+        </div>
+      </div>
+
+      <!-- ── Re-warm cookies ───────────────────────────── -->
+      <div class="cfg-group">
+        <h3>3 &middot; Re-warm cookies &mdash; refresh every existing profile</h3>
+        <p class="hint">
+          Cookies decay. <code>NID</code> and <code>AEC</code> expire, <code>SOCS</code> gets
+          cleared, a profile sits unused for weeks, or an import rebuilt the cookie store and only
+          the login came back. The profile still looks long-lived on disk &mdash; it just stopped
+          carrying the cookies that tell Google it has been seen before, and the next search from
+          it is the one that gets challenged.
+        </p>
+        <p class="hint">
+          This browses normally in every profile and <b>keeps going until the jar actually grades
+          healthy</b>, then re-opens each profile offline to confirm the cookies survived the
+          browser closing. Signed-in profiles stay signed in &mdash; warming only browses, it never
+          signs anything out.
+        </p>
+        <div class="xfer-actions">
+          <button class="btn btn-save" id="btnRewarmup">Re-warm all cookies</button>
+          <label class="check">Rounds
+            <input type="number" id="rewarmRounds" min="1" max="5" value="1" style="width:60px" />
+          </label>
+          <label class="check">Max rounds
+            <input type="number" id="rewarmMax" min="1" max="6" value="3" style="width:60px" />
+          </label>
+        </div>
+        <div class="xfer-actions">
+          <label class="check"><input type="checkbox" id="rewarmAccountsOnly" /> Accounts only (skip unclaimed pool profiles)</label>
+          <span class="desc">Roughly a minute per profile, plus a pause between each &mdash; warming them back to back from one proxy pool is its own pattern.</span>
+        </div>
+        <div class="xfer-actions">
+          <span class="desc" id="rewarmSummary">—</span>
+        </div>
+      </div>
+
+      <!-- ── Provision new accounts ────────────────────── -->
+      <div class="cfg-group">
+        <h3>4 &middot; New accounts &mdash; provision</h3>
+        <p class="hint">
+          Every account above that has no profile yet gets one: first from the warm pool, and only
+          when the pool is empty does it build a new profile, warm it up, and <em>then</em> sign in.
+          Existing accounts are left alone &mdash; if they are signed out, that is button&nbsp;1.
+        </p>
+        <div class="xfer-actions">
+          <button class="btn btn-add" id="btnProvision">Provision new accounts</button>
+          <span class="desc" id="provisionSummary">—</span>
+        </div>
+        <div class="xfer-actions">
+          <label class="check"><input type="checkbox" id="provisionNoPool" /> Ignore the pool and always build fresh profiles</label>
+        </div>
+        <div class="xfer-actions">
+          <button class="btn btn-stop" id="btnAcctStop" disabled>⏹ Stop Task</button>
+          <span class="desc" id="acctTaskState">No task running.</span>
+        </div>
+      </div>
+
+      <div class="panel-head">
+        <h2>Profile status <span class="count" id="acctStatusCount"></span></h2>
+        <div><button class="btn btn-ghost" id="acctStatusReload">Reload</button></div>
+      </div>
+      <div class="table-wrap">
+        <table id="acctStatusTable">
+          <thead>
+            <tr>
+              <th>Account</th><th>Profile</th><th>Source</th>
+              <th>Login</th><th>Cookies</th><th>Warmth</th><th>Last checked</th><th>Note</th>
+            </tr>
+          </thead>
+          <tbody id="acctStatusBody"></tbody>
+        </table>
+      </div>
+
+      <div class="panel-head"><h2>Cookie pool <span class="count" id="poolCount2"></span></h2></div>
+      <div class="table-wrap">
+        <table id="poolTable">
+          <thead>
+            <tr><th>Profile</th><th>State</th><th>Cookies</th><th>Warmth</th><th>Warmed</th><th>Identity</th></tr>
+          </thead>
+          <tbody id="poolBody"></tbody>
+        </table>
+      </div>
     </section>
 
     <!-- ── TRANSFER ───────────────────────────────────── -->
@@ -164,5 +298,6 @@
 
   <div class="toast" id="toast"></div>
   <script src="app.js"></script>
+  <script src="accounts.js"></script>
 </body>
 </html>

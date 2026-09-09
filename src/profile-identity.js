@@ -14,7 +14,9 @@
  */
 import { dirname, join, resolve } from 'path';
 import { fileURLToPath } from 'url';
+import { randomBytes } from 'crypto';
 import config from '../config.js';
+import { assignmentFor } from './profile-map.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -25,9 +27,42 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
  */
 export const PROFILES_ROOT = resolve(__dirname, '..', 'chrome-profiles');
 
-/** Turn an account email into its on-disk profile directory name. */
-export function profileDirNameFor(email) {
+/**
+ * The directory name an email would get if it had never been assigned one.
+ * Kept separate from profileDirNameFor so the pool can tell "this account has
+ * its own folder" apart from "this account borrowed a pool folder".
+ */
+export function defaultProfileDirNameFor(email) {
   return String(email).replace(/[^a-z0-9@.-]+/gi, '_');
+}
+
+/**
+ * Turn an account email into its on-disk profile directory name.
+ *
+ * An account that was handed a pre-warmed pool profile keeps that profile's
+ * directory name forever - renaming it would change the derived fingerprint,
+ * which is what the warmup was there to avoid. Accounts with no assignment
+ * fall back to the email-derived name, so profiles created before the pool
+ * existed keep resolving exactly as they always did.
+ */
+export function profileDirNameFor(email) {
+  return assignmentFor(email) || defaultProfileDirNameFor(email);
+}
+
+/** Prefix marking a profile that was built by the cookie pool. */
+export const POOL_PREFIX = 'pool.';
+
+export function isPoolProfile(profileDirName) {
+  return String(profileDirName).startsWith(POOL_PREFIX);
+}
+
+/**
+ * A fresh, unused pool profile name. Random rather than sequential: the name
+ * seeds the fingerprint, and pool.1 / pool.2 / pool.3 would sit next to each
+ * other in the hash space with no benefit.
+ */
+export function newPoolProfileName() {
+  return `${POOL_PREFIX}${randomBytes(4).toString('hex')}`;
 }
 
 /** Absolute path to one profile's user-data dir. */
