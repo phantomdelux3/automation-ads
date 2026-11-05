@@ -109,6 +109,10 @@ export async function launchBrowser(
   const identity = profileIdentity(profileDirName);
   const { viewport, timezone, locale } = identity;
 
+  const needsGoogleLogin = Boolean(
+    account && performLogin && !existsSync(join(profileDir, 'LOGIN_SUCCESS.txt'))
+  );
+
   const launchOptions = {
     userDataDir: profileDir,
     headless: options.headless === undefined ? config.headless : options.headless,
@@ -117,8 +121,20 @@ export async function launchBrowser(
     timezone,
     locale,
     viewport,
+    licenseKey: config.cloakbrowserLicenseKey || undefined,
+    releaseChannel: config.cloakbrowserReleaseChannel || undefined,
+    launchOptions: { timeout: 45000 },
     args: [
       ...fingerprintArgs(identity),
+      ...(config.cloakbrowserAllow3pCookies || options.allow3pCookies || needsGoogleLogin
+        ? ['--fingerprint-allow-3p-cookies']
+        : []),
+      ...(config.cloakbrowserTransparentProxy || options.transparentProxy
+        ? ['--fingerprint-transparent-proxy']
+        : []),
+      ...(config.cloakbrowserLicenseThroughProxy || options.licenseThroughProxy
+        ? ['--license-through-proxy']
+        : []),
       `--proxy-bypass-list=<-loopback>`, // Optimize local browser socket connection speed
       `--disable-quic` // Prevent proxies from hanging on HTTP/3
     ],
@@ -154,12 +170,16 @@ export async function launchBrowser(
     // Anonymize the proxy so Playwright doesn't have to handle proxy auth
     anonymizedProxyUrl = await proxyChain.anonymizeProxy({ url: rawProxyUrl });
     launchOptions.proxy = { server: anonymizedProxyUrl };
+    if (config.cloakbrowserGeoip) {
+      launchOptions.geoip = true;
+    }
   }
 
+  let context = null;
   try {
     // Launch persistent context — cookies and localStorage persist across restarts
     // This bypasses incognito detection and builds browser trust
-    const context = await launchPersistentContext(launchOptions, { timeout: 45000 });
+    context = await launchPersistentContext(launchOptions);
     
     // Make sure we close the anonymized proxy when context closes to avoid port leaking
     if (anonymizedProxyUrl) {
@@ -197,6 +217,17 @@ export async function launchBrowser(
       proxyString: anonymizedProxyUrl,
     };
   } catch (err) {
+    if (context) {
+      try { await context.close(); } catch { /* ignore */ }
+    } else if (anonymizedProxyUrl) {
+      try { await proxyChain.closeAnonymizedProxy(anonymizedProxyUrl, true); } catch { /* ignore */ }
+    }
+
+    // Do not retry license errors (invalid/missing key or seat cap reached)
+    if (err && (err.name === 'CloakBrowserLicenseError' || /CloakBrowser Pro:.*license/i.test(err.message))) {
+      throw err;
+    }
+
     if (config.proxies && config.proxies.length > 0) {
       console.log(`  ⚠ Browser launch or proxy failed, retrying with another proxy (${retryCount + 1}/5)...`);
       return await launchBrowser(retryCount + 1, specificAccount, performLogin, options);

@@ -70,7 +70,7 @@ function installBundledBrowser(manifest) {
   }
 
   const cacheDir = process.env.CLOAKBROWSER_CACHE_DIR || path.join(os.homedir(), '.cloakbrowser');
-  const dest = path.join(cacheDir, `chromium-${bundled.version}`);
+  const dest = path.join(cacheDir, `chromium-${bundled.version}-pro`);
 
   if (!fs.existsSync(path.join(dest, 'chrome.exe'))) {
     info(`Installing bundled Chromium ${bundled.version} (${human(dirSize(src))})...`);
@@ -80,6 +80,7 @@ function installBundledBrowser(manifest) {
 
   // The version marker is how cloakbrowser decides which build to run.
   try {
+    fs.writeFileSync(path.join(cacheDir, 'latest_pro_version_windows-x64'), bundled.version);
     fs.writeFileSync(path.join(cacheDir, 'latest_version_windows-x64'), bundled.version);
   } catch (e) {
     warn(`Could not write version marker: ${e.message}`);
@@ -101,17 +102,17 @@ function checkChromium(manifest) {
   const there = manifest && manifest.source && manifest.source.chromium;
 
   if (!here.installed) {
-    info(`Chromium ${here.version} is not downloaded yet - it will download on the first bot run.`);
+    info(`Chromium ${here.version || 'Pro (latest)'} is not downloaded yet - it will download on the first bot run.`);
   } else {
     info(`Chromium here: ${here.version}`);
   }
   if (!there) return;
 
-  if (here.version !== there.version && here.version !== there) {
+  if (here.version && here.version !== there.version && here.version !== there) {
     warn(`Source machine ran Chromium ${there}, this machine will run ${here.version}.`);
     warn('  Not fatal, but a different build means a slightly different fingerprint.');
     warn('  For an exact match, re-run the export with --include-browser.');
-  } else {
+  } else if (here.version) {
     ok(`Chromium build matches the source machine (${here.version}).`);
   }
 }

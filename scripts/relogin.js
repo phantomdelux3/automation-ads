@@ -78,7 +78,7 @@ async function handleAccount(account, headless) {
     // No performLogin here: the launcher's own login is a one-shot gated on
     // LOGIN_SUCCESS.txt, and after a transfer that marker exists while the
     // session does not. This script decides for itself, from what Google says.
-    session = await launchBrowser(0, account, false, { profileDirName, headless });
+    session = await launchBrowser(0, account, false, { profileDirName, headless, allow3pCookies: !CHECK_ONLY });
   } catch (e) {
     fail(`could not launch the profile: ${e.message}`);
     updateProfile(profileDirName, {

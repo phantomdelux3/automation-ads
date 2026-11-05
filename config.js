@@ -2,6 +2,7 @@ import dotenv from 'dotenv';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
+import os from 'os';
 
 dotenv.config();
 
@@ -47,6 +48,35 @@ const config = {
   headless: process.env.HEADLESS === 'true',
   loginEmail: process.env.LOGIN_EMAIL !== 'false',
   accounts: accounts,
+
+  // ── CloakBrowser Pro ─────────────────────────────────────
+  cloakbrowserLicenseKey: (() => {
+    const cacheDir = process.env.CLOAKBROWSER_CACHE_DIR || join(os.homedir(), '.cloakbrowser');
+    const keyFile = join(cacheDir, 'license.key');
+    const envKey = (process.env.CLOAKBROWSER_LICENSE_KEY || '').trim();
+    if (/^cb_[A-Za-z0-9_-]+$/.test(envKey)) {
+      try {
+        fs.mkdirSync(cacheDir, { recursive: true });
+        fs.writeFileSync(keyFile, envKey + '\n', { mode: 0o600 });
+      } catch {
+        // Non-fatal if cache dir is not writable
+      }
+      return envKey;
+    }
+    try {
+      if (fs.existsSync(keyFile)) {
+        return fs.readFileSync(keyFile, 'utf8').trim();
+      }
+    } catch {
+      // Ignore unreadable key file
+    }
+    return envKey;
+  })(),
+  cloakbrowserReleaseChannel: (process.env.CLOAKBROWSER_RELEASE_CHANNEL || '').trim(),
+  cloakbrowserGeoip: process.env.CLOAKBROWSER_GEOIP !== 'false', // enabled by default when using a proxy
+  cloakbrowserAllow3pCookies: process.env.CLOAKBROWSER_ALLOW_3P_COOKIES === 'true',
+  cloakbrowserTransparentProxy: process.env.CLOAKBROWSER_TRANSPARENT_PROXY === 'true',
+  cloakbrowserLicenseThroughProxy: process.env.CLOAKBROWSER_LICENSE_THROUGH_PROXY === 'true',
 
   // ── Cookie Warmup ────────────────────────────────────────
   // Visit Google properties (YouTube, Google News) before searching

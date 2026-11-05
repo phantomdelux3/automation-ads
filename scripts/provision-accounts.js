@@ -115,7 +115,7 @@ async function provision(account, profileDirName, { fromPool, headless }) {
 
   let session;
   try {
-    session = await launchBrowser(0, account, false, { profileDirName, headless });
+    session = await launchBrowser(0, account, false, { profileDirName, headless, allow3pCookies: true });
   } catch (e) {
     fail(`could not launch the profile: ${e.message}`);
     return { email: account.email, profileDirName, status: 'launch-failed', error: e.message };

@@ -12,6 +12,7 @@
 import express from 'express';
 import { spawn } from 'child_process';
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { profileStatus } from './scripts/lib/status.js';
@@ -277,9 +278,37 @@ function applyEnvValues(content, values) {
   return out.join('\n');
 }
 
+function syncCloakLicenseFile(key) {
+  const trimmed = String(key || '').trim();
+  if (!/^cb_[A-Za-z0-9_-]+$/.test(trimmed)) return;
+  try {
+    const cacheDir = process.env.CLOAKBROWSER_CACHE_DIR || path.join(os.homedir(), '.cloakbrowser');
+    fs.mkdirSync(cacheDir, { recursive: true });
+    fs.writeFileSync(path.join(cacheDir, 'license.key'), trimmed + '\n', { mode: 0o600 });
+  } catch {
+    /* non-fatal */
+  }
+}
+
+function readCloakLicenseFile() {
+  try {
+    const cacheDir = process.env.CLOAKBROWSER_CACHE_DIR || path.join(os.homedir(), '.cloakbrowser');
+    const keyFile = path.join(cacheDir, 'license.key');
+    if (fs.existsSync(keyFile)) return fs.readFileSync(keyFile, 'utf8').trim();
+  } catch {
+    /* ignore */
+  }
+  return '';
+}
+
 app.get('/api/config', (req, res) => {
   const raw = fs.existsSync(ENV_PATH) ? fs.readFileSync(ENV_PATH, 'utf8') : '';
-  res.json({ raw, values: parseEnv(raw) });
+  const values = parseEnv(raw);
+  if (!values.CLOAKBROWSER_LICENSE_KEY) {
+    const savedKey = readCloakLicenseFile();
+    if (savedKey) values.CLOAKBROWSER_LICENSE_KEY = savedKey;
+  }
+  res.json({ raw, values });
 });
 
 app.post('/api/config', (req, res) => {
@@ -288,6 +317,8 @@ app.post('/api/config', (req, res) => {
     if (typeof raw === 'string') {
       backup(ENV_PATH);
       fs.writeFileSync(ENV_PATH, raw);
+      const parsed = parseEnv(raw);
+      if (parsed.CLOAKBROWSER_LICENSE_KEY) syncCloakLicenseFile(parsed.CLOAKBROWSER_LICENSE_KEY);
       return res.json({ ok: true, mode: 'raw' });
     }
     if (values && typeof values === 'object') {
@@ -296,6 +327,7 @@ app.post('/api/config', (req, res) => {
         : '';
       backup(ENV_PATH);
       fs.writeFileSync(ENV_PATH, applyEnvValues(current, values));
+      if (values.CLOAKBROWSER_LICENSE_KEY) syncCloakLicenseFile(values.CLOAKBROWSER_LICENSE_KEY);
       return res.json({ ok: true, mode: 'form' });
     }
     res.status(400).json({ error: 'Provide { values } or { raw }' });

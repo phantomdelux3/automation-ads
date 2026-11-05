@@ -179,6 +179,17 @@ const CONFIG_SCHEMA = [
     ],
   },
   {
+    group: 'CloakBrowser Pro',
+    fields: [
+      { key: 'CLOAKBROWSER_LICENSE_KEY', type: 'text', desc: 'CloakBrowser Pro license key (cb_xxx)' },
+      { key: 'CLOAKBROWSER_RELEASE_CHANNEL', type: 'text', desc: 'Release channel — blank for Stable (155.x) or "preview" for Preview (156.x)' },
+      { key: 'CLOAKBROWSER_GEOIP', type: 'bool', desc: 'Enable GeoIP / WebRTC exit-IP matching when using a proxy' },
+      { key: 'CLOAKBROWSER_ALLOW_3P_COOKIES', type: 'bool', desc: 'Allow third-party cookies for embedded logins & reCAPTCHA v3 (--fingerprint-allow-3p-cookies)' },
+      { key: 'CLOAKBROWSER_TRANSPARENT_PROXY', type: 'bool', desc: 'Hide local proxy port from page JS (--fingerprint-transparent-proxy)' },
+      { key: 'CLOAKBROWSER_LICENSE_THROUGH_PROXY', type: 'bool', desc: 'Route license check through the session proxy (--license-through-proxy)' },
+    ],
+  },
+  {
     group: 'Proxy',
     fields: [
       { key: 'PROXY_LIST', type: 'list', desc: 'Proxy hosts host:port (one per line)' },

@@ -14,6 +14,7 @@
  *    accounts on the wire from an un-proxied IP.
  */
 import { launchPersistentContext } from 'cloakbrowser';
+import config from '../../config.js';
 import {
   profileIdentity,
   fingerprintArgs,
@@ -49,6 +50,8 @@ export async function openProfile(profileDirName, { headless = true, timeout = 6
     timezone: identity.timezone,
     locale: identity.locale,
     viewport: identity.viewport,
+    licenseKey: config.cloakbrowserLicenseKey || undefined,
+    releaseChannel: config.cloakbrowserReleaseChannel || undefined,
     args: [...fingerprintArgs(identity), ...OFFLINE_ARGS],
     launchOptions: { timeout },
   });
