@@ -16,6 +16,7 @@
     "profiles:pack": "node scripts/pack-transfer.js",
     "accounts:check": "node scripts/relogin.js --check-only",
     "accounts:relogin": "node scripts/relogin.js",
+    "accounts:reloginsamescreen": "node scripts/relogin.js --same-screen",
     "accounts:provision": "node scripts/provision-accounts.js",
     "cookies:build": "node scripts/build-cookies.js",
     "cookies:rewarm": "node scripts/rewarmup.js",

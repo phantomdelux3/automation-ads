@@ -20,6 +20,8 @@
  *   node scripts/relogin.js --only a@b.com,c@d.com
  *   node scripts/relogin.js --headed            show the browser (needed for 2FA)
  *   node scripts/relogin.js --force             re-login even if already signed in
+ *   node scripts/relogin.js --same-screen [WxH] one screen size for all (default 1920x1080),
+ *                                               this run only - the bot keeps per-profile screens
  */
 import fs from 'fs';
 import path from 'path';
@@ -42,6 +44,24 @@ const ONLY = (() => {
     .split(',')
     .map((s) => s.trim().toLowerCase())
     .filter(Boolean);
+})();
+
+/**
+ * --same-screen [WIDTHxHEIGHT]: launch every profile with one shared screen
+ * size for this run only. Defaults to 1920x1080 (or RELOGIN_SCREEN in .env).
+ * The bot's normal runs are untouched and keep each profile's own screen.
+ */
+const SAME_SCREEN = (() => {
+  const i = args.indexOf('--same-screen');
+  if (i < 0) return null;
+  const next = args[i + 1];
+  const raw = (next && !next.startsWith('--') ? next : process.env.RELOGIN_SCREEN || '1920x1080').trim();
+  const m = raw.match(/^(\d{3,5})\s*[xX]\s*(\d{3,5})$/);
+  if (!m) {
+    console.error(`--same-screen expects WIDTHxHEIGHT (e.g. 1920x1080), got "${raw}"`);
+    process.exit(1);
+  }
+  return { width: Number(m[1]), height: Number(m[2]) };
 })();
 
 /**
@@ -78,7 +98,12 @@ async function handleAccount(account, headless) {
     // No performLogin here: the launcher's own login is a one-shot gated on
     // LOGIN_SUCCESS.txt, and after a transfer that marker exists while the
     // session does not. This script decides for itself, from what Google says.
-    session = await launchBrowser(0, account, false, { profileDirName, headless, allow3pCookies: !CHECK_ONLY });
+    session = await launchBrowser(0, account, false, {
+      profileDirName,
+      headless,
+      allow3pCookies: !CHECK_ONLY,
+      ...(SAME_SCREEN ? { screen: SAME_SCREEN } : {}),
+    });
   } catch (e) {
     fail(`could not launch the profile: ${e.message}`);
     updateProfile(profileDirName, {
@@ -209,6 +234,7 @@ async function main() {
   info(`Browser:   ${headless ? 'headless' : 'visible (needed if Google asks for verification)'}`);
   info(`Proxies:   ${(config.proxies || []).length || 'none (direct connection)'}`);
   if (CHECK_ONLY) info('Mode:      check only - no sign-in will be attempted');
+  if (SAME_SCREEN) info(`Screen:    ${SAME_SCREEN.width}x${SAME_SCREEN.height} for every profile (this run only)`);
 
   step(`Working through ${accounts.length} profile(s)`);
 

@@ -20,6 +20,7 @@ import {
   fingerprintArgs,
   profileDirFor,
 } from '../../src/profile-identity.js';
+import { trackContext } from '../../src/session-registry.js';
 
 /** Chrome flags that keep a launched profile completely silent. */
 const OFFLINE_ARGS = [
@@ -56,6 +57,7 @@ export async function openProfile(profileDirName, { headless = true, timeout = 6
     launchOptions: { timeout },
   });
 
+  trackContext(context);
   return { context, identity };
 }
 

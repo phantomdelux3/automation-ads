@@ -11,6 +11,7 @@ import {
   fingerprintArgs,
 } from './profile-identity.js';
 import { loginToGoogle as signIn } from './google-login.js';
+import { trackContext } from './session-registry.js';
 
 /**
  * Pick a random item from an array
@@ -106,8 +107,31 @@ export async function launchBrowser(
   // session and on every machine. A profile whose timezone or screen size
   // changes between visits does not look like a returning user; it looks like
   // a fresh browser wearing an old cookie jar, which is what draws CAPTCHAs.
-  const identity = profileIdentity(profileDirName);
-  const { viewport, timezone, locale } = identity;
+  let identity = profileIdentity(profileDirName);
+  // Optional one-launch screen override (used by "relogin --same-screen").
+  // Only the screen/window size changes - seed, GPU, timezone, locale and
+  // proxy stay the profile's own. Normal bot runs never pass this, so every
+  // profile keeps its own per-profile screen there.
+  if (options.screen && options.screen.width && options.screen.height) {
+    const { width, height } = options.screen;
+    identity = {
+      ...identity,
+      screen: { width, height },
+      viewport: options.viewport || { width, height: height - 110 },
+    };
+  }
+  const { viewport, locale } = identity;
+  let timezone = identity.timezone;
+
+  // Timezone must match the proxy's EXIT IP (CloakBrowser's #1 tip). The
+  // wrapper's geoip only fills the timezone when we leave it unset - passing
+  // the profile's pool timezone (e.g. Los_Angeles) while the residential exit
+  // is in Ohio is exactly the mismatch reCAPTCHA scores against. So with a
+  // proxy + geoip we leave it to geoip. Locale stays explicit (it follows the
+  // proxy country, which is fixed). If geoip keeps failing, the last retries
+  // fall back to the profile's stable timezone rather than not launching.
+  const hasProxy = Boolean(config.proxies && config.proxies.length > 0);
+  const geoTimezone = hasProxy && config.cloakbrowserGeoip && retryCount < 3;
 
   const needsGoogleLogin = Boolean(
     account && performLogin && !existsSync(join(profileDir, 'LOGIN_SUCCESS.txt'))
@@ -118,7 +142,7 @@ export async function launchBrowser(
     headless: options.headless === undefined ? config.headless : options.headless,
     humanize: true,
     humanPreset: 'careful',
-    timezone,
+    ...(geoTimezone ? {} : { timezone }),
     locale,
     viewport,
     licenseKey: config.cloakbrowserLicenseKey || undefined,
@@ -180,7 +204,8 @@ export async function launchBrowser(
     // Launch persistent context — cookies and localStorage persist across restarts
     // This bypasses incognito detection and builds browser trust
     context = await launchPersistentContext(launchOptions);
-    
+    trackContext(context);
+
     // Make sure we close the anonymized proxy when context closes to avoid port leaking
     if (anonymizedProxyUrl) {
       const originalClose = context.close.bind(context);
@@ -200,7 +225,15 @@ export async function launchBrowser(
     // it to decide if "wait for a manual solve" is a real option or four
     // minutes of waiting for somebody who cannot see anything.
     page.isHeadless = !!launchOptions.headless;
-    
+
+    // Report the timezone the browser actually runs with (geoip-resolved
+    // when a proxy is in use), not the profile's fallback.
+    if (geoTimezone) {
+      timezone = await page
+        .evaluate(() => Intl.DateTimeFormat().resolvedOptions().timeZone)
+        .catch(() => timezone);
+    }
+
     if (account && performLogin) {
       await loginToGoogle(page, account, profileDir);
     }

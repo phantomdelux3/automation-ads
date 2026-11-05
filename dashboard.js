@@ -118,6 +118,8 @@ app.post('/api/bot/start', (req, res) => {
     botProc = spawn(process.execPath, ['index.js'], {
       cwd: ROOT,
       env: { ...process.env, FORCE_COLOR: '0', NO_COLOR: '1' },
+      // ipc lets Stop ask the child to close its browsers (frees the seat)
+      stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
     });
   } catch (e) {
     botProc = null;
@@ -143,20 +145,43 @@ app.post('/api/bot/start', (req, res) => {
   res.json(statusObj());
 });
 
+/**
+ * Stop a child gracefully: ask it (over IPC) to close its CloakBrowser
+ * sessions, so the license seat is freed immediately. Force-kill the tree only
+ * if it hasn't exited after a grace period - a force-killed browser keeps its
+ * seat busy for minutes, and with a 1-seat plan the next Start would fail.
+ */
+function stopGracefully(proc, graceMs = 20000) {
+  const pid = proc.pid;
+  const forceKill = () => {
+    if (process.platform === 'win32') {
+      spawn('taskkill', ['/pid', String(pid), '/T', '/F']);
+    } else {
+      try { process.kill(pid, 'SIGKILL'); } catch { /* already gone */ }
+    }
+  };
+  let sent = false;
+  try {
+    if (proc.connected) { proc.send({ type: 'shutdown' }); sent = true; }
+  } catch { /* fall through */ }
+  if (!sent && process.platform !== 'win32') {
+    try { process.kill(pid, 'SIGTERM'); sent = true; } catch { /* already gone */ }
+  }
+  if (!sent) return forceKill();
+  const timer = setTimeout(() => {
+    if (proc.exitCode === null && proc.signalCode === null) {
+      pushLog('system', `⚠ pid ${pid} did not exit in ${graceMs / 1000}s — force-killing`);
+      forceKill();
+    }
+  }, graceMs);
+  proc.once('exit', () => clearTimeout(timer));
+}
+
 app.post('/api/bot/stop', (req, res) => {
   if (!botProc) return res.status(409).json({ error: 'Bot is not running' });
   const pid = botProc.pid;
-  pushLog('system', `⏹ Stop requested — killing process tree (pid ${pid})…`);
-  if (process.platform === 'win32') {
-    // Kill the whole tree so Chromium children die too
-    spawn('taskkill', ['/pid', String(pid), '/T', '/F']);
-  } else {
-    try {
-      process.kill(pid, 'SIGTERM');
-    } catch {
-      /* already gone */
-    }
-  }
+  pushLog('system', `⏹ Stop requested — closing browsers cleanly (pid ${pid})…`);
+  stopGracefully(botProc);
   res.json({ ok: true });
 });
 
@@ -203,6 +228,8 @@ app.post('/api/transfer/run', (req, res) => {
     taskProc = spawn(process.execPath, argv, {
       cwd: ROOT,
       env: { ...process.env, FORCE_COLOR: '0', NO_COLOR: '1' },
+      // ipc lets Stop ask the child to close its browsers (frees the seat)
+      stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
     });
   } catch (e) {
     taskProc = null;
@@ -237,15 +264,7 @@ app.post('/api/transfer/stop', (req, res) => {
   if (!taskProc) return res.status(409).json({ error: 'No transfer task is running' });
   const pid = taskProc.pid;
   pushLog('system', `⏹ Stopping ${TASKS[taskName].label} (pid ${pid})…`);
-  if (process.platform === 'win32') {
-    spawn('taskkill', ['/pid', String(pid), '/T', '/F']);
-  } else {
-    try {
-      process.kill(pid, 'SIGTERM');
-    } catch {
-      /* already gone */
-    }
-  }
+  stopGracefully(taskProc);
   res.json({ ok: true });
 });
 
