@@ -998,9 +998,21 @@ export async function runSession(sessionNumber, keyword) {
         if (!link.href) continue;
         let adMainDomain = '';
         try { adMainDomain = getMainDomain(new URL(link.href).hostname); } catch {}
+        
+        let decodedHref = link.href;
+        try { decodedHref = decodeURIComponent(link.href); } catch {}
+        let trackingUrl = link.getAttribute('data-rw') || link.getAttribute('data-adurl') || '';
+        let trackingDecoded = trackingUrl;
+        try { trackingDecoded = decodeURIComponent(trackingUrl); } catch {}
+        
+        const parent = link.closest('[data-text-ad]') || link.closest('.uEierd') || link.parentElement;
+        const displayUrl = parent?.innerText || '';
+        
+        const combined = (decodedHref + ' ' + trackingDecoded + ' ' + displayUrl).toLowerCase();
+
         for (const domain of domains) {
           const targetMain = getMainDomain(domain);
-          if (adMainDomain === targetMain || adMainDomain.endsWith('.' + targetMain) || link.href.toLowerCase().includes(targetMain)) {
+          if (adMainDomain === targetMain || adMainDomain.endsWith('.' + targetMain) || combined.includes(targetMain)) {
             targetInSponsored = true;
             if (!seenSponsoredTargets.has(targetMain)) {
               seenSponsoredTargets.add(targetMain);
