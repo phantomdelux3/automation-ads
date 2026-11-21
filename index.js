@@ -104,19 +104,100 @@ async function main() {
   };
 
   const startTime = Date.now();
+  const MAX_RUNS = 20;
+  const runId = `run_${startTime}`;
+  const sessions = [];
+  let runStatus = 'running';
+  let currentLoop = 1;
+  let currentSession = null;
+  // Keep the newest N session records per run; totals and keyword stats still cover every session.
+  const MAX_SESSIONS_PER_RUN = 500;
+  let sessionsDropped = 0;
+
+  const runConfig = {
+    keywords: config.keywords,
+    targetDomains: config.targetDomains,
+    sessionsPerKeyword: config.sessionsPerKeyword,
+    sponsoredOnly: config.sponsoredOnly,
+    loopBot: config.loopBot,
+    cookieWarmup: config.cookieWarmup,
+    searchHistory: config.searchHistory,
+    headless: config.headless,
+    proxies: config.proxies.length,
+    accounts: config.accounts ? config.accounts.length : 0,
+  };
+
+  function buildRunRecord() {
+    return {
+      id: runId,
+      timestamp: globalStats.timestamp,
+      lastUpdate: new Date().toISOString(),
+      status: runStatus,
+      loop: currentLoop,
+      elapsed: ((Date.now() - startTime) / 1000).toFixed(1),
+      totalSessions: globalStats.totalSessions,
+      successes: globalStats.successes,
+      failures: globalStats.failures,
+      targetClicks: globalStats.targetClicks,
+      config: runConfig,
+      currentSession,
+      keywordData: Object.fromEntries(globalStats.keywordData),
+      sessions,
+      sessionsDropped,
+    };
+  }
+
+  // History is best-effort: a failed write must never crash or abort the bot.
+  function saveHistory() {
+    try {
+      // Re-read so we don't clobber runs written by another bot process.
+      // Only a missing file means "no history" - any other read/parse error
+      // falls back to what we already have in memory, so old runs are never wiped.
+      let onDisk = runHistory;
+      try {
+        const parsed = JSON.parse(fs.readFileSync(historyFile, 'utf8'));
+        if (Array.isArray(parsed)) onDisk = parsed;
+      } catch (e) {
+        if (e.code === 'ENOENT') onDisk = [];
+      }
+      const others = onDisk.filter(r => r && r.id !== runId);
+      const all = [buildRunRecord(), ...others]
+        .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
+        .slice(0, MAX_RUNS);
+      const json = JSON.stringify(all);
+
+      // Write to a temp file then rename, so readers never see a half-written file.
+      // On Windows the rename can fail briefly while the dashboard is reading
+      // the file, so retry a few times before falling back to a direct write.
+      const tmp = `${historyFile}.${process.pid}.tmp`;
+      fs.writeFileSync(tmp, json);
+      let renamed = false;
+      for (let attempt = 0; attempt < 5 && !renamed; attempt++) {
+        try { fs.renameSync(tmp, historyFile); renamed = true; }
+        catch (e) { const until = Date.now() + 50; while (Date.now() < until) { /* brief wait */ } }
+      }
+      if (!renamed) {
+        fs.writeFileSync(historyFile, json);
+        try { fs.unlinkSync(tmp); } catch (e) {}
+      }
+      runHistory = all;
+    } catch (e) {
+      console.log(chalk.yellow(`  ⚠ Could not update history.json: ${e.message}`));
+    }
+  }
+
+  // Mark the run as stopped if the process is interrupted
+  const onStop = () => {
+    runStatus = 'stopped';
+    currentSession = null;
+    try { saveHistory(); } catch (e) {}
+    process.exit(130);
+  };
+  process.once('SIGINT', onStop);
+  process.once('SIGTERM', onStop);
 
   // Initialize current run in history
-  runHistory.unshift({
-    timestamp: globalStats.timestamp,
-    elapsed: 0,
-    totalSessions: 0,
-    successes: 0,
-    failures: 0,
-    targetClicks: 0,
-    keywordData: {}
-  });
-  if (runHistory.length > 5) runHistory.pop();
-  fs.writeFileSync(historyFile, JSON.stringify(runHistory, null, 2));
+  saveHistory();
 
   const reportInterval = setInterval(() => {
     // Derive counts from keywordData for the table header
@@ -124,16 +205,7 @@ async function main() {
     const kwsWithTarget = [...globalStats.keywordData.values()].filter(d => d.targetsMax > 0).length;
 
     // Update live history
-    runHistory[0] = {
-      timestamp: globalStats.timestamp,
-      elapsed: ((Date.now() - startTime) / 1000).toFixed(1),
-      totalSessions: globalStats.totalSessions,
-      successes: globalStats.successes,
-      failures: globalStats.failures,
-      targetClicks: globalStats.targetClicks,
-      keywordData: Object.fromEntries(globalStats.keywordData)
-    };
-    fs.writeFileSync(historyFile, JSON.stringify(runHistory, null, 2));
+    saveHistory();
 
     console.log(chalk.bold.magenta(`
 ╔══════════════════════════════════════════════════════╗
@@ -162,6 +234,7 @@ async function main() {
   let loopCount = 1;
 
   do {
+    currentLoop = loopCount;
     if (config.loopBot) {
       console.log(chalk.bold.yellow(`\n══════════════════════════════════════════════════════`));
       console.log(chalk.bold.yellow(`  Starting Loop Iteration #${loopCount}`));
@@ -181,7 +254,19 @@ async function main() {
         globalStats.totalSessions++;
         const sessionLabel = `K${kwIdx + 1}S${sess}`;
 
+        currentSession = { label: sessionLabel, keyword, startedAt: new Date().toISOString() };
+        saveHistory();
+
         const stats = await runSession(sessionLabel, keyword);
+        currentSession = null;
+
+        sessions.push(stats
+          ? { ...stats, label: config.loopBot ? `L${loopCount}${sessionLabel}` : sessionLabel, loop: loopCount }
+          : { label: sessionLabel, keyword, loop: loopCount, success: false, outcome: 'error', reason: 'Session returned no data', endedAt: new Date().toISOString() });
+        if (sessions.length > MAX_SESSIONS_PER_RUN) {
+          sessionsDropped += sessions.length - MAX_SESSIONS_PER_RUN;
+          sessions.splice(0, sessions.length - MAX_SESSIONS_PER_RUN);
+        }
 
         if (stats) {
           if (stats.success) {
@@ -219,16 +304,7 @@ async function main() {
         }
 
         // Update live history immediately after session
-        runHistory[0] = {
-          timestamp: globalStats.timestamp,
-          elapsed: ((Date.now() - startTime) / 1000).toFixed(1),
-          totalSessions: globalStats.totalSessions,
-          successes: globalStats.successes,
-          failures: globalStats.failures,
-          targetClicks: globalStats.targetClicks,
-          keywordData: Object.fromEntries(globalStats.keywordData)
-        };
-        fs.writeFileSync(historyFile, JSON.stringify(runHistory, null, 2));
+        saveHistory();
 
 
         // Random delay between sessions (skip after the very last one if not looping)
@@ -255,16 +331,8 @@ async function main() {
   const kwsWithTarget    = [...globalStats.keywordData.values()].filter(d => d.targetsMax > 0).length;
 
   // Final update of the history record for this run
-  runHistory[0] = {
-    timestamp: globalStats.timestamp,
-    elapsed: elapsed,
-    totalSessions: globalStats.totalSessions,
-    successes: globalStats.successes,
-    failures: globalStats.failures,
-    targetClicks: globalStats.targetClicks,
-    keywordData: Object.fromEntries(globalStats.keywordData)
-  };
-  fs.writeFileSync(historyFile, JSON.stringify(runHistory, null, 2));
+  runStatus = 'completed';
+  saveHistory();
 
   console.log(chalk.bold.magenta(`
 ╔══════════════════════════════════════════════════════╗

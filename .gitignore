@@ -8,3 +8,7 @@ ad-diagnostic.png
 profile-bundle/
 *-transfer-*.zip
 profile-state.json
+
+# Bot run history (runtime data: contains account emails and IPs)
+history.json
+history.json.*.tmp

@@ -186,7 +186,9 @@ async function checkProxyIp(page, label) {
     if (proxyIp) {
       console.log(chalk.magenta(`  → [${label}] Proxy IP: ${proxyIp}`));
     }
+    return proxyIp;
   } catch (err) {}
+  return null;
 }
 
 // ─── Google Search ──────────────────────────────────────────
@@ -924,11 +926,22 @@ export async function runSession(sessionNumber, keyword) {
   console.log(chalk.cyan(`\n━━━ Session ${sessionNumber} ━━━━━━━━━━━━━━━━━━━━━━`));
   console.log(chalk.cyan(`  Keyword: "${keyword}"`));
 
+  const startedAt = Date.now();
   let sessionStats = {
+    label: sessionNumber,
     keyword,
+    startedAt: new Date(startedAt).toISOString(),
     success: false,
     hasSponsored: false,
-    hasTargetDomain: false
+    hasTargetDomain: false,
+    sponsoredCount: 0,
+    sponsoredDomains: [],
+    targetCount: 0,
+    clickedTargets: 0,
+    clicks: [],
+    outcome: 'running',
+    reason: '',
+    stage: 'launch',
   };
 
   let context;
@@ -943,18 +956,27 @@ export async function runSession(sessionNumber, keyword) {
     const size = page.viewportSize();
     const profileText = result.account?.email || 'Anonymous';
     console.log(chalk.dim(`  → Profile: ${profileText} | TZ: ${result.timezone} | Locale: ${result.locale} | Viewport: ${size.width}x${size.height}`));
+    sessionStats.profile = profileText;
+    sessionStats.timezone = result.timezone;
+    sessionStats.locale = result.locale;
+    sessionStats.viewport = size ? `${size.width}x${size.height}` : '';
+    sessionStats.proxy = !!result.proxyString;
 
     // Log the initial session IP
-    await checkProxyIp(page, 'Session Start');
+    sessionStats.ip = await checkProxyIp(page, 'Session Start');
 
     // 2. Warm up Google cookies (reduces reCAPTCHA)
+    sessionStats.stage = 'warmup';
     await warmupGoogleCookies(page);
 
     // 3. Build search history (influences ad targeting)
+    sessionStats.stage = 'search-history';
     await buildSearchHistory(page);
 
     // 4. Search the keyword on Google
+    sessionStats.stage = 'search';
     await searchGoogle(page, keyword);
+    sessionStats.stage = 'serp-check';
 
     // Remember the search results URL — browsing a target pushes internal
     // pages onto history, so we need a reliable anchor to return to between
@@ -1065,25 +1087,34 @@ export async function runSession(sessionNumber, keyword) {
     sessionStats.sponsoredCount = fastCheck.sponsoredCount;
     sessionStats.sponsoredDomains = fastCheck.sponsoredDomains;
     sessionStats.targetCount = fastCheck.totalTargetCount;
+    sessionStats.targetInSponsored = fastCheck.targetInSponsored;
+    sessionStats.targetInOrganic = fastCheck.targetInOrganic;
 
     if (config.sponsoredOnly) {
       if (!fastCheck.hasSponsored) {
         console.log(chalk.yellow(`  ⚠ FAST FAIL: No sponsored ads found on page. Skipping session.`));
+        sessionStats.outcome = 'no-ads';
+        sessionStats.reason = 'No sponsored ads on the results page';
         return sessionStats;
       }
       if (!fastCheck.targetInSponsored) {
         console.log(chalk.yellow(`  ⚠ FAST FAIL: Found ${fastCheck.sponsoredCount} sponsored ad(s) but target domain was NOT among them. Skipping session.`));
+        sessionStats.outcome = 'no-target';
+        sessionStats.reason = `${fastCheck.sponsoredCount} sponsored ad(s), none from a target domain`;
         return sessionStats;
       }
     } else {
       if (!fastCheck.hasTarget) {
         console.log(chalk.yellow(`  ⚠ FAST FAIL: Target domains not found in sponsored or organic results. Skipping session.`));
+        sessionStats.outcome = fastCheck.hasSponsored ? 'no-target' : 'no-ads';
+        sessionStats.reason = 'Target domains not found in sponsored or organic results';
         return sessionStats;
       }
     }
     console.log(chalk.green(`  ✓ Validated! ${fastCheck.sponsoredCount} sponsored ad(s) on page, ${fastCheck.totalTargetCount} target link(s) found. Proceeding...`));
 
     // 6. Simulate organic behavior on search results
+    sessionStats.stage = 'locate-target';
     console.log(chalk.dim(`  → Simulating organic browsing on results...`));
     await humanScroll(page);
     await randomIdle();
@@ -1106,12 +1137,18 @@ export async function runSession(sessionNumber, keyword) {
 
     if (adInfos.length === 0) {
       console.log(chalk.yellow(`⚠ Session ${sessionNumber} — no matching result found for "${keyword}"`));
+      sessionStats.outcome = 'not-located';
+      sessionStats.reason = 'Target detected on page but no clickable result matched';
       return sessionStats;
     }
 
     // 8. Click and browse ALL matched targets
+    sessionStats.stage = 'click';
     for (let c = 0; c < adInfos.length; c++) {
       const adInfo = adInfos[c];
+      const clickStart = Date.now();
+      const clickRecord = { domain: adInfo.domain, type: adInfo.type, clicked: false };
+      sessionStats.clicks.push(clickRecord);
       console.log(chalk.dim(`  → Target ${c + 1}/${adInfos.length}: Clicking ${adInfo.type} result (${adInfo.domain})...`));
       
       const clicked = adInfo.type === 'organic'
@@ -1123,6 +1160,7 @@ export async function runSession(sessionNumber, keyword) {
         continue;
       }
       
+      clickRecord.clicked = true;
       sessionStats.clickedTargets = (sessionStats.clickedTargets || 0) + 1;
 
       // 9. Wait for navigation to the target site
@@ -1140,7 +1178,10 @@ export async function runSession(sessionNumber, keyword) {
         }
       }
       await sleep(2000, 4000);
+      try { clickRecord.landingUrl = page.url(); } catch {}
+      sessionStats.stage = 'browse';
       await browseTargetSite(page, context);
+      clickRecord.dwellMs = Date.now() - clickStart;
 
       console.log(chalk.green(`  ✓ Browsed target ${c + 1} — "${adInfo.domain}" (${adInfo.type})`));
       
@@ -1158,12 +1199,18 @@ export async function runSession(sessionNumber, keyword) {
     }
 
     console.log(chalk.green(`✓ Session ${sessionNumber} completed — clicked ${sessionStats.clickedTargets} targets`));
-    sessionStats.success = true;
+    sessionStats.success = sessionStats.clickedTargets > 0;
+    sessionStats.outcome = sessionStats.success ? 'clicked' : 'click-failed';
+    if (!sessionStats.success) sessionStats.reason = 'Target found but every click attempt failed';
     return sessionStats;
   } catch (err) {
     console.log(chalk.red(`✗ Session ${sessionNumber} failed: ${err.message}`));
+    sessionStats.outcome = 'error';
+    sessionStats.reason = `Error during ${sessionStats.stage}: ${String(err.message || err).split(/\r?\n/)[0].slice(0, 300)}`;
     return sessionStats;
   } finally {
+    sessionStats.endedAt = new Date().toISOString();
+    sessionStats.durationMs = Date.now() - startedAt;
     if (context) {
       await context.close();
     }

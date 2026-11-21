@@ -3,84 +3,200 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Pennywise Ad Clicker Dashboard</title>
+  <title>Pennywise Dashboard</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="style.css">
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 </head>
 <body>
-  <div class="container">
-    <header>
-      <h1>Pennywise Dashboard</h1>
-      <p class="subtitle">Live insights into bot search sessions and ad visibility.</p>
+  <div class="app">
+    <!-- ── Top bar ── -->
+    <header class="topbar">
+      <div class="brand">
+        <div class="logo">P</div>
+        <div>
+          <h1>Pennywise Dashboard</h1>
+          <p class="subtitle">Search sessions, ad visibility and click outcomes</p>
+        </div>
+      </div>
+      <div class="topbar-right">
+        <span class="refresh" id="refresh-indicator" title="Auto-refreshes every 3s">
+          <span class="dot"></span><span id="refresh-text">Connecting…</span>
+        </span>
+        <label class="select-wrap">
+          <span>Run</span>
+          <select id="run-selector"><option>Loading runs…</option></select>
+        </label>
+      </div>
     </header>
 
-    <div class="controls">
-      <label for="run-selector">Select Run ID to View: </label>
-      <select id="run-selector">
-        <option value="" disabled selected>Loading runs...</option>
-      </select>
+    <main id="main" class="hidden">
+      <!-- ── Run header ── -->
+      <section class="panel run-header">
+        <div class="run-title-row">
+          <div>
+            <div class="run-title">
+              <h2 id="run-title">Run</h2>
+              <span class="status-pill" id="run-status"></span>
+            </div>
+            <p class="muted" id="run-meta"></p>
+          </div>
+          <div class="live-session hidden" id="live-session">
+            <span class="pulse"></span>
+            <div>
+              <div class="label-sm">In progress</div>
+              <div id="live-session-text"></div>
+            </div>
+          </div>
+        </div>
+        <div class="chips" id="run-config"></div>
+      </section>
+
+      <!-- ── KPI tiles ── -->
+      <section class="kpis" id="kpis"></section>
+
+      <!-- ── Funnel + outcomes ── -->
+      <div class="grid-2">
+        <section class="panel">
+          <div class="panel-head">
+            <h3>Session funnel</h3>
+            <span class="muted small">How far sessions got</span>
+          </div>
+          <div id="funnel" class="funnel"></div>
+        </section>
+        <section class="panel">
+          <div class="panel-head">
+            <h3>Outcomes</h3>
+            <span class="muted small">Why sessions ended the way they did</span>
+          </div>
+          <div id="outcomes" class="outcomes"></div>
+        </section>
+      </div>
+
+      <!-- ── Timeline ── -->
+      <section class="panel">
+        <div class="panel-head">
+          <h3>Session timeline</h3>
+          <span class="muted small">Each block is one session, in order. Hover for details, click to open it.</span>
+        </div>
+        <div id="timeline" class="timeline"></div>
+      </section>
+
+      <!-- ── Keywords ── -->
+      <section class="panel">
+        <div class="panel-head">
+          <h3>Keyword performance</h3>
+          <span class="muted small">Click a keyword to filter the session log</span>
+        </div>
+        <div class="table-wrapper">
+          <table id="keyword-table" class="data-table">
+            <thead>
+              <tr>
+                <th>Keyword</th>
+                <th class="num">Sessions</th>
+                <th>Ads shown</th>
+                <th class="num">Avg / max ads</th>
+                <th>Target visible</th>
+                <th class="num">Clicks</th>
+                <th>Success</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- ── Ad landscape ── -->
+      <section class="panel">
+        <div class="panel-head">
+          <h3>Advertisers seen</h3>
+          <span class="muted small">Sponsored domains on the results pages. Target domains are marked.</span>
+        </div>
+        <div class="table-wrapper">
+          <table id="domain-table" class="data-table">
+            <thead>
+              <tr>
+                <th>Domain</th>
+                <th>Share of sessions</th>
+                <th class="num">Appearances</th>
+                <th>Keywords</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- ── Session log ── -->
+      <section class="panel">
+        <div class="panel-head">
+          <h3>Session log</h3>
+          <span class="muted small" id="session-count"></span>
+        </div>
+        <div class="filters">
+          <input type="search" id="filter-text" placeholder="Search keyword, profile, IP, domain, reason…">
+          <select id="filter-keyword"><option value="">All keywords</option></select>
+          <select id="filter-outcome"><option value="">All outcomes</option></select>
+          <button id="filter-clear" class="btn-ghost">Clear</button>
+        </div>
+        <div class="table-wrapper">
+          <table id="session-table" class="data-table sessions">
+            <thead>
+              <tr>
+                <th></th>
+                <th>Session</th>
+                <th>Keyword</th>
+                <th>Outcome</th>
+                <th class="num">Ads</th>
+                <th>Target</th>
+                <th class="num">Clicks</th>
+                <th>Profile</th>
+                <th class="num">Duration</th>
+                <th>Ended</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <p class="legacy-note hidden" id="legacy-note">
+          This run was recorded before per-session tracking was added, so only keyword totals are available.
+          New runs will show every session here.
+        </p>
+      </section>
+
+      <!-- ── Run history ── -->
+      <section class="panel">
+        <div class="panel-head">
+          <h3>Run history</h3>
+          <span class="muted small">Success rate per run (oldest → newest). Click a bar to open that run.</span>
+        </div>
+        <div id="history-chart" class="history-chart"></div>
+        <div class="table-wrapper">
+          <table id="history-table" class="data-table">
+            <thead>
+              <tr>
+                <th>Run</th>
+                <th>Started</th>
+                <th>Status</th>
+                <th class="num">Sessions</th>
+                <th class="num">Clicked</th>
+                <th class="num">Success</th>
+                <th class="num">Ad rate</th>
+                <th class="num">Duration</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+
+    <div id="empty" class="empty hidden">
+      <h2>No runs yet</h2>
+      <p class="muted">Start the bot (<code>npm run bot</code>) and this page fills in live.</p>
     </div>
-
-    <!-- Summary Cards -->
-    <div class="summary-grid" id="summary-section">
-      <div class="card">
-        <h3>Total Sessions</h3>
-        <p class="stat" id="stat-total">0</p>
-      </div>
-      <div class="card">
-        <h3>Successful Clicks</h3>
-        <p class="stat text-green" id="stat-success">0</p>
-      </div>
-      <div class="card">
-        <h3>Failed Sessions</h3>
-        <p class="stat text-red" id="stat-failed">0</p>
-      </div>
-      <div class="card">
-        <h3>Target Ad Clicks</h3>
-        <p class="stat text-blue" id="stat-clicks">0</p>
-      </div>
-    </div>
-
-    <!-- Keyword Report -->
-    <section>
-      <h2>Keyword Performance</h2>
-      <div class="table-wrapper">
-        <table id="keyword-table">
-          <thead>
-            <tr>
-              <th>Keyword</th>
-              <th>Total Sessions</th>
-              <th>Sponsored Sessions</th>
-              <th>Highest Ads Count</th>
-              <th>Max Target Domain Seen</th>
-            </tr>
-          </thead>
-          <tbody>
-            <!-- rows injected via JS -->
-          </tbody>
-        </table>
-      </div>
-    </section>
-
-    <!-- Specific Sponsored Websites Seen -->
-    <section>
-      <h2>Sponsored Ads Detected Across Keywords</h2>
-      <div class="table-wrapper">
-        <table id="domain-table">
-          <thead>
-            <tr>
-              <th>Sponsored Domain</th>
-              <th>Total Appearances</th>
-            </tr>
-          </thead>
-          <tbody>
-            <!-- rows injected via JS -->
-          </tbody>
-        </table>
-      </div>
-    </section>
   </div>
 
+  <div id="tooltip" class="tooltip hidden"></div>
   <script src="script.js"></script>
 </body>
 </html>
