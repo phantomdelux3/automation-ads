@@ -1,7 +1,8 @@
-document.addEventListener('DOMContentLoaded', async () => {
-  const runSelector = document.getElementById('run-selector');
-  let historyData = [];
+let historyData = [];
+const runSelector = document.getElementById('run-selector');
+let selectedIndex = 0;
 
+async function loadData() {
   try {
     const res = await fetch('/api/history');
     historyData = await res.json();
@@ -14,6 +15,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     return;
   }
 
+  // Preserve selection if possible
+  const currentVal = runSelector.value;
+  
   // Populate selector
   runSelector.innerHTML = '';
   historyData.forEach((run, index) => {
@@ -21,15 +25,26 @@ document.addEventListener('DOMContentLoaded', async () => {
     const opt = document.createElement('option');
     opt.value = index;
     opt.textContent = `Run ${historyData.length - index} (${date})`;
+    if (String(index) === currentVal) {
+      opt.selected = true;
+    }
     runSelector.appendChild(opt);
   });
 
+  // Render the current selection
+  renderDashboard(historyData[selectedIndex]);
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  loadData();
+  
   runSelector.addEventListener('change', (e) => {
-    renderDashboard(historyData[e.target.value]);
+    selectedIndex = parseInt(e.target.value);
+    renderDashboard(historyData[selectedIndex]);
   });
 
-  // Render the most recent run by default
-  renderDashboard(historyData[0]);
+  // Poll every 3 seconds for live updates
+  setInterval(loadData, 3000);
 });
 
 function renderDashboard(data) {

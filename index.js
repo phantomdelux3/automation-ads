@@ -105,10 +105,36 @@ async function main() {
 
   const startTime = Date.now();
 
+  // Initialize current run in history
+  runHistory.unshift({
+    timestamp: globalStats.timestamp,
+    elapsed: 0,
+    totalSessions: 0,
+    successes: 0,
+    failures: 0,
+    targetClicks: 0,
+    keywordData: {}
+  });
+  if (runHistory.length > 5) runHistory.pop();
+  fs.writeFileSync(historyFile, JSON.stringify(runHistory, null, 2));
+
   const reportInterval = setInterval(() => {
     // Derive counts from keywordData for the table header
     const kwsWithSponsored = [...globalStats.keywordData.values()].filter(d => d.sponsoredSessions > 0).length;
     const kwsWithTarget = [...globalStats.keywordData.values()].filter(d => d.targetsMax > 0).length;
+
+    // Update live history
+    runHistory[0] = {
+      timestamp: globalStats.timestamp,
+      elapsed: ((Date.now() - startTime) / 1000).toFixed(1),
+      totalSessions: globalStats.totalSessions,
+      successes: globalStats.successes,
+      failures: globalStats.failures,
+      targetClicks: globalStats.targetClicks,
+      keywordData: Object.fromEntries(globalStats.keywordData)
+    };
+    fs.writeFileSync(historyFile, JSON.stringify(runHistory, null, 2));
+
     console.log(chalk.bold.magenta(`
 ╔══════════════════════════════════════════════════════╗
 ║               Live Progress Report                   ║
@@ -121,15 +147,15 @@ async function main() {
 ║ KWs w/ Target Domain: ${String(kwsWithTarget).padEnd(31)}║
 ╚══════════════════════════════════════════════════════╝
     `));
-    const sponsoredKws = [...globalStats.keywordData.entries()].filter(([,d]) => d.sponsored > 0);
-    const targetKws    = [...globalStats.keywordData.entries()].filter(([,d]) => d.targets > 0);
+    const sponsoredKws = [...globalStats.keywordData.entries()].filter(([,d]) => d.sponsoredSessions > 0);
+    const targetKws    = [...globalStats.keywordData.entries()].filter(([,d]) => d.targetsMax > 0);
     if (sponsoredKws.length > 0) {
       console.log(chalk.yellow(`  Ads Found For:`));
-      sponsoredKws.forEach(([kw, d]) => console.log(chalk.dim(`    • "${kw}" — ${d.sponsored} sponsored ad(s)`)));
+      sponsoredKws.forEach(([kw, d]) => console.log(chalk.dim(`    • "${kw}" — ${d.sponsoredMax} sponsored ad(s) max in ${d.sponsoredSessions} sessions`)));
     }
     if (targetKws.length > 0) {
       console.log(chalk.green(`  Targets Found For:`));
-      targetKws.forEach(([kw, d]) => console.log(chalk.dim(`    • "${kw}" — ${d.targets} target link(s)`)));
+      targetKws.forEach(([kw, d]) => console.log(chalk.dim(`    • "${kw}" — ${d.targetsMax} target link(s) max`)));
     }
   }, 60000);
 
@@ -192,6 +218,19 @@ async function main() {
           globalStats.failures++;
         }
 
+        // Update live history immediately after session
+        runHistory[0] = {
+          timestamp: globalStats.timestamp,
+          elapsed: ((Date.now() - startTime) / 1000).toFixed(1),
+          totalSessions: globalStats.totalSessions,
+          successes: globalStats.successes,
+          failures: globalStats.failures,
+          targetClicks: globalStats.targetClicks,
+          keywordData: Object.fromEntries(globalStats.keywordData)
+        };
+        fs.writeFileSync(historyFile, JSON.stringify(runHistory, null, 2));
+
+
         // Random delay between sessions (skip after the very last one if not looping)
         const isLastSession = kwIdx === config.keywords.length - 1 && sess === config.sessionsPerKeyword;
         if (config.loopBot || !isLastSession) {
@@ -215,8 +254,8 @@ async function main() {
   const kwsWithSponsored = [...globalStats.keywordData.values()].filter(d => d.sponsoredSessions > 0).length;
   const kwsWithTarget    = [...globalStats.keywordData.values()].filter(d => d.targetsMax > 0).length;
 
-  // Save history
-  const currentRunData = {
+  // Final update of the history record for this run
+  runHistory[0] = {
     timestamp: globalStats.timestamp,
     elapsed: elapsed,
     totalSessions: globalStats.totalSessions,
@@ -225,8 +264,6 @@ async function main() {
     targetClicks: globalStats.targetClicks,
     keywordData: Object.fromEntries(globalStats.keywordData)
   };
-  runHistory.unshift(currentRunData);
-  if (runHistory.length > 5) runHistory.pop(); // Keep last 5 runs
   fs.writeFileSync(historyFile, JSON.stringify(runHistory, null, 2));
 
   console.log(chalk.bold.magenta(`
