@@ -310,7 +310,7 @@ async function findSponsoredAd(page, targetDomains) {
         const linkEl = block.querySelector('a[data-rw]') || block.querySelector('a[ping]') || block.querySelector('a');
         if (linkEl) {
           const href = linkEl.href || '';
-          const displayUrl = block.querySelector('.V6f4Id, .qzEoUe, cite')?.innerText || '';
+          const displayUrl = block.innerText || '';
           results.push({ href, displayUrl, top: block.getBoundingClientRect().top });
         }
       });
@@ -324,7 +324,7 @@ async function findSponsoredAd(page, targetDomains) {
         const linkEl = block.querySelector('a[data-rw]') || block.querySelector('a[ping]') || block.querySelector('a');
         if (linkEl) {
           const href = linkEl.href || '';
-          const displayUrl = block.querySelector('.V6f4Id, .qzEoUe, cite')?.innerText || '';
+          const displayUrl = block.innerText || '';
           results.push({ href, displayUrl, top: block.getBoundingClientRect().top });
         }
       });
@@ -336,13 +336,13 @@ async function findSponsoredAd(page, targetDomains) {
       const linkEl = el.querySelector('a') || el.closest('a');
       if (linkEl && linkEl.href && !results.some(r => r.href === linkEl.href)) {
         const parent = el.closest('[data-text-ad]') || el.closest('.uEierd') || el.closest('.CnP9N') || el.parentElement;
-        const displayUrl = parent?.querySelector('cite, .qzEoUe, .V6f4Id')?.innerText || '';
+        const displayUrl = parent?.innerText || '';
         results.push({ href: linkEl.href, displayUrl, top: el.getBoundingClientRect().top });
       }
     });
 
     // Find spans that actually contain "Sponsored" text
-    document.querySelectorAll('span').forEach((span) => {
+    document.querySelectorAll('span, div').forEach((span) => {
       if (span.textContent?.trim() === 'Sponsored' || span.textContent?.trim() === 'Ad') {
         // Walk up to find the parent ad container
         const container = span.closest('[data-text-ad]') || span.closest('.uEierd') || span.closest('.CnP9N')
@@ -350,7 +350,7 @@ async function findSponsoredAd(page, targetDomains) {
         if (container) {
           const linkEl = container.querySelector('a[data-rw]') || container.querySelector('a[ping]') || container.querySelector('a');
           if (linkEl && linkEl.href && !results.some(r => r.href === linkEl.href)) {
-            const displayUrl = container.querySelector('cite, .qzEoUe, .V6f4Id')?.innerText || '';
+            const displayUrl = container.innerText || '';
             results.push({ href: linkEl.href, displayUrl, top: container.getBoundingClientRect().top });
           }
         }
@@ -362,7 +362,7 @@ async function findSponsoredAd(page, targetDomains) {
       const href = el.href || '';
       if (href && !results.some(r => r.href === href)) {
         const parent = el.closest('[data-text-ad]') || el.closest('.uEierd') || el.closest('.CnP9N') || el.parentElement;
-        const displayUrl = parent?.querySelector('cite, .qzEoUe, .V6f4Id')?.innerText || '';
+        const displayUrl = parent?.innerText || '';
         results.push({ href, displayUrl, top: el.getBoundingClientRect().top });
       }
     });
@@ -392,7 +392,14 @@ async function findSponsoredAd(page, targetDomains) {
       let adHostname = '';
       try { adHostname = new URL(ad.href).hostname; } catch {}
       const adMainDomain = getMainDomain(adHostname);
-      const combined = (ad.href + ' ' + ad.displayUrl).toLowerCase();
+      
+      let decodedHref = ad.href;
+      try { decodedHref = decodeURIComponent(ad.href); } catch {}
+      let trackingDecoded = ad.trackingUrl;
+      try { trackingDecoded = decodeURIComponent(ad.trackingUrl); } catch {}
+      
+      const combined = (decodedHref + ' ' + trackingDecoded + ' ' + ad.displayUrl).toLowerCase();
+      
       for (const domain of domains) {
         const targetMain = getMainDomain(domain);
         if (adMainDomain === targetMain || adMainDomain.endsWith('.' + targetMain) || combined.includes(targetMain)) {
@@ -550,7 +557,7 @@ async function clickSponsoredAd(page, adInfo) {
     // which would make the click selector match two elements.
     document.querySelectorAll('[data-target-click]').forEach((el) => el.removeAttribute('data-target-click'));
 
-    const allLinks = document.querySelectorAll('#tads a, #tadsb a, [data-text-ad] a, [data-rw]');
+    const allLinks = document.querySelectorAll('a');
     
     // Find the actual clickable link
     for (const link of allLinks) {
@@ -563,17 +570,33 @@ async function clickSponsoredAd(page, adInfo) {
     }
 
     // Fallback: match by domain in href
-    const domain = new URL(targetHref).hostname.replace(/^www\./, '');
-    for (const link of allLinks) {
-      try {
-        const linkDomain = new URL(link.href).hostname.replace(/^www\./, '');
-        if (link.href && (linkDomain === domain || linkDomain.endsWith('.' + domain))) {
-          link.removeAttribute('target');
-          link.setAttribute('data-target-click', 'true');
-          link.scrollIntoView({ behavior: 'smooth', block: 'center' });
-          return { found: true };
-        }
-      } catch {}
+    let domain = '';
+    try {
+      let decodedHref = targetHref;
+      try { decodedHref = decodeURIComponent(targetHref); } catch {}
+      const urlMatches = decodedHref.match(/https?:\/\/[^\s&"']+/g);
+      if (urlMatches && urlMatches.length > 0) {
+        domain = new URL(urlMatches[0]).hostname.replace(/^www\./, '');
+      } else {
+        domain = new URL(targetHref).hostname.replace(/^www\./, '');
+      }
+    } catch {}
+
+    if (domain) {
+      for (const link of allLinks) {
+        try {
+          const linkDomain = new URL(link.href).hostname.replace(/^www\./, '');
+          if (link.href && (linkDomain === domain || linkDomain.endsWith('.' + domain))) {
+            const parent = link.closest('[data-text-ad]') || link.closest('.uEierd') || link.closest('#tads') || link.closest('#tadsb');
+            if (parent) {
+              link.removeAttribute('target');
+              link.setAttribute('data-target-click', 'true');
+              link.scrollIntoView({ behavior: 'smooth', block: 'center' });
+              return { found: true };
+            }
+          }
+        } catch {}
+      }
     }
 
     return { found: false };

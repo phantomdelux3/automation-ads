@@ -54,19 +54,26 @@ async function main() {
     const path = await import('path');
     const { launchBrowser } = await import('./src/browser.js');
     const { profileDirNameFor, profileDirFor } = await import('./src/profile-identity.js');
+    const { warmupProfile } = await import('./src/warmup.js');
 
     for (const account of config.accounts) {
       const profileDirName = profileDirNameFor(account.email);
       const profileDir = profileDirFor(profileDirName);
       const successFile = path.join(profileDir, 'LOGIN_SUCCESS.txt');
       
-      if (!fs.existsSync(successFile)) {
-        console.log(chalk.cyan(`\n  → Setting up profile for: ${account.email}`));
+      const needsLogin = !fs.existsSync(successFile);
+      const needsWarmup = config.cookieWarmup;
+
+      if (needsLogin || needsWarmup) {
+        console.log(chalk.cyan(`\n  → Setting up/warming up profile for: ${account.email}`));
         try {
           const result = await launchBrowser(0, account, true);
-          if (result && result.context) {
+          if (result && result.context && result.page) {
+            if (needsWarmup) {
+              await warmupProfile(result.page, result.context, { rounds: 1, label: account.email });
+            }
             await result.context.close();
-            console.log(chalk.green(`  ✓ Profile setup complete for ${account.email}`));
+            console.log(chalk.green(`  ✓ Profile setup/warmup complete for ${account.email}`));
           }
         } catch (e) {
           console.log(chalk.red(`  ⚠ Error setting up profile for ${account.email}: ${e.message}`));
