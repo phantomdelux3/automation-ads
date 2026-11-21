@@ -399,10 +399,11 @@ async function findSponsoredAd(page, targetDomains) {
       try { trackingDecoded = decodeURIComponent(ad.trackingUrl); } catch {}
       
       const combined = (decodedHref + ' ' + trackingDecoded + ' ' + ad.displayUrl).toLowerCase();
+      const combinedNoSpaces = combined.replace(/\s+/g, '');
       
       for (const domain of domains) {
         const targetMain = getMainDomain(domain);
-        if (adMainDomain === targetMain || adMainDomain.endsWith('.' + targetMain) || combined.includes(targetMain)) {
+        if (adMainDomain === targetMain || adMainDomain.endsWith('.' + targetMain) || combined.includes(targetMain) || combinedNoSpaces.includes(targetMain)) {
           // Only add one link per target domain to avoid repeating the same site
           if (!matchedAds.some(m => m.domain === domain) && !matchedAds.some(m => m.href === ad.href)) {
              matchedAds.push({
@@ -1009,10 +1010,11 @@ export async function runSession(sessionNumber, keyword) {
         const displayUrl = parent?.innerText || '';
         
         const combined = (decodedHref + ' ' + trackingDecoded + ' ' + displayUrl).toLowerCase();
+        const combinedNoSpaces = combined.replace(/\s+/g, '');
 
         for (const domain of domains) {
           const targetMain = getMainDomain(domain);
-          if (adMainDomain === targetMain || adMainDomain.endsWith('.' + targetMain) || combined.includes(targetMain)) {
+          if (adMainDomain === targetMain || adMainDomain.endsWith('.' + targetMain) || combined.includes(targetMain) || combinedNoSpaces.includes(targetMain)) {
             targetInSponsored = true;
             if (!seenSponsoredTargets.has(targetMain)) {
               seenSponsoredTargets.add(targetMain);
@@ -1048,6 +1050,7 @@ export async function runSession(sessionNumber, keyword) {
       return {
         hasSponsored,
         sponsoredCount,
+        sponsoredDomains: Array.from(allSponsoredDomains),
         hasTarget: targetInSponsored || (!onlySponsored && targetInOrganic),
         targetInSponsored,
         targetInOrganic,
@@ -1060,6 +1063,7 @@ export async function runSession(sessionNumber, keyword) {
     sessionStats.hasSponsored = fastCheck.hasSponsored;
     sessionStats.hasTargetDomain = fastCheck.hasTarget;
     sessionStats.sponsoredCount = fastCheck.sponsoredCount;
+    sessionStats.sponsoredDomains = fastCheck.sponsoredDomains;
     sessionStats.targetCount = fastCheck.totalTargetCount;
 
     if (config.sponsoredOnly) {

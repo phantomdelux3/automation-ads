@@ -5,7 +5,7 @@
   "main": "index.js",
   "type": "module",
   "scripts": {
-    "start": "node dashboard.js",
+    "start": "concurrently \"node dashboard.js\" \"node dashboard/server.js\"",
     "dashboard": "node dashboard.js",
     "bot": "node index.js",
     "start:headed": "set HEADLESS=false && node index.js",
@@ -27,8 +27,9 @@
   "dependencies": {
     "chalk": "^5.3.0",
     "cloakbrowser": "^0.7.0",
+    "concurrently": "^10.0.7",
     "dotenv": "^16.4.5",
-    "express": "^4.22.2",
+    "express": "^4.22.3",
     "mmdb-lib": "^3.0.4",
     "playwright-core": "1.58.2",
     "proxy-chain": "^2.7.1"

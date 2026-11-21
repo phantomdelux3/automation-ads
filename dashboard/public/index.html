@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Pennywise Ad Clicker Dashboard</title>
+  <link rel="stylesheet" href="style.css">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>Pennywise Dashboard</h1>
+      <p class="subtitle">Live insights into bot search sessions and ad visibility.</p>
+    </header>
+
+    <div class="controls">
+      <label for="run-selector">Select Run ID to View: </label>
+      <select id="run-selector">
+        <option value="" disabled selected>Loading runs...</option>
+      </select>
+    </div>
+
+    <!-- Summary Cards -->
+    <div class="summary-grid" id="summary-section">
+      <div class="card">
+        <h3>Total Sessions</h3>
+        <p class="stat" id="stat-total">0</p>
+      </div>
+      <div class="card">
+        <h3>Successful Clicks</h3>
+        <p class="stat text-green" id="stat-success">0</p>
+      </div>
+      <div class="card">
+        <h3>Failed Sessions</h3>
+        <p class="stat text-red" id="stat-failed">0</p>
+      </div>
+      <div class="card">
+        <h3>Target Ad Clicks</h3>
+        <p class="stat text-blue" id="stat-clicks">0</p>
+      </div>
+    </div>
+
+    <!-- Keyword Report -->
+    <section>
+      <h2>Keyword Performance</h2>
+      <div class="table-wrapper">
+        <table id="keyword-table">
+          <thead>
+            <tr>
+              <th>Keyword</th>
+              <th>Total Sessions</th>
+              <th>Sponsored Sessions</th>
+              <th>Highest Ads Count</th>
+              <th>Max Target Domain Seen</th>
+            </tr>
+          </thead>
+          <tbody>
+            <!-- rows injected via JS -->
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Specific Sponsored Websites Seen -->
+    <section>
+      <h2>Sponsored Ads Detected Across Keywords</h2>
+      <div class="table-wrapper">
+        <table id="domain-table">
+          <thead>
+            <tr>
+              <th>Sponsored Domain</th>
+              <th>Total Appearances</th>
+            </tr>
+          </thead>
+          <tbody>
+            <!-- rows injected via JS -->
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+
+  <script src="script.js"></script>
+</body>
+</html>
